@@ -4,7 +4,7 @@ import factory
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 
-from core.models import Trade, Workspace
+from core.models import Asset, EmotionTag, Journal, MistakeTag, SetupTag, Trade
 
 
 class UserFactory(factory.django.DjangoModelFactory):
@@ -24,35 +24,82 @@ class UserFactory(factory.django.DjangoModelFactory):
             self.save(update_fields=["password"])
 
 
-class WorkspaceFactory(factory.django.DjangoModelFactory):
+class JournalFactory(factory.django.DjangoModelFactory):
     class Meta:
-        model = Workspace
+        model = Journal
 
     user = factory.SubFactory(UserFactory)
-    name = factory.Sequence(lambda n: f"Workspace {n}")
-    description = ""
+    name = factory.Sequence(lambda n: f"Journal {n}")
+    journal_type = "trading"
+    starting_capital = Decimal("10000.00")
+    currency = "USD"
+    break_even_method = "ratio"
+
+
+class AssetFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = Asset
+
+    journal = factory.SubFactory(JournalFactory)
+    symbol = factory.Sequence(lambda n: f"PAIR{n:02d}")
+    name = ""
+    is_archived = False
+
+
+class EmotionTagFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = EmotionTag
+
+    journal = factory.SubFactory(JournalFactory)
+    label = factory.Sequence(lambda n: f"Emotion {n}")
+    is_archived = False
+
+
+class MistakeTagFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = MistakeTag
+
+    journal = factory.SubFactory(JournalFactory)
+    label = factory.Sequence(lambda n: f"Mistake {n}")
+    is_archived = False
+
+
+class SetupTagFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = SetupTag
+
+    journal = factory.SubFactory(JournalFactory)
+    label = factory.Sequence(lambda n: f"Setup {n}")
+    is_archived = False
 
 
 class TradeFactory(factory.django.DjangoModelFactory):
     class Meta:
         model = Trade
+        skip_postgeneration_save = True
 
-    owner = factory.SubFactory(UserFactory)
-    workspace = factory.LazyAttribute(
-        lambda trade: Workspace.objects.filter(user=trade.owner, name="Main").first()
-        or WorkspaceFactory(user=trade.owner, name="Main")
-    )
-    asset = "EURUSD"
-    trend_direction = Trade.TrendDirection.BULLISH
-    opportunity_timeframe = Trade.Timeframe.H4
-    entry_timeframe = Trade.Timeframe.M15
-    setup = "Pullback"
-    session = Trade.Session.LONDON
+    journal = factory.SubFactory(JournalFactory)
+    asset = factory.SubFactory(AssetFactory, journal=factory.SelfAttribute("..journal"))
     side = Trade.Side.BUY
-    status = Trade.Status.WIN
     entry_datetime = factory.LazyFunction(timezone.now)
-    exit_datetime = factory.LazyAttribute(lambda trade: trade.entry_datetime + timezone.timedelta(hours=1))
+    exit_datetime = factory.LazyAttribute(lambda t: t.entry_datetime + timezone.timedelta(hours=1))
     risk_percent = Decimal("1.00")
     pnl_r = Decimal("1.00")
-    emotion = "Calm"
+    status = None
     notes = "Followed plan"
+
+    @factory.post_generation
+    def emotions(self, create, extracted, **kwargs):
+        if not create:
+            return
+        if extracted:
+            self.emotions.set(extracted)
+        else:
+            emotion = EmotionTagFactory(journal=self.journal)
+            self.emotions.add(emotion)
+
+    @factory.post_generation
+    def mistakes(self, create, extracted, **kwargs):
+        if not create or not extracted:
+            return
+        self.mistakes.set(extracted)

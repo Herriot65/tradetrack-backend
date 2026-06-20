@@ -10,14 +10,10 @@ class TradeFilter(django_filters.FilterSet):
     class Meta:
         model = Trade
         fields = (
-            "asset",
-            "setup",
-            "trend_direction",
-            "opportunity_timeframe",
-            "entry_timeframe",
-            "session",
             "side",
             "status",
+            "trend_direction",
+            "session",
             "entry_datetime__gte",
             "entry_datetime__lte",
         )
