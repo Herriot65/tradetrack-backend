@@ -12,6 +12,9 @@ from .views import (
     JournalViewSet,
     MistakeTagDetailView,
     MistakeTagListCreateView,
+    MT5ImportView,
+    PerformanceByDayView,
+    PerformanceByHourView,
     PnlBySetupView,
     SetupTagDetailView,
     SetupTagListCreateView,
@@ -39,6 +42,9 @@ journal_nested = [
     path("analytics/win-loss-distribution/", WinLossDistributionView.as_view(), name="journal-win-loss"),
     path("analytics/pnl-by-setup/", PnlBySetupView.as_view(), name="journal-pnl-by-setup"),
     path("analytics/career/", CareerView.as_view(), name="journal-career"),
+    path("analytics/performance-by-day/", PerformanceByDayView.as_view(), name="journal-performance-by-day"),
+    path("analytics/performance-by-hour/", PerformanceByHourView.as_view(), name="journal-performance-by-hour"),
+    path("imports/mt5/", MT5ImportView.as_view(), name="journal-import-mt5"),
 ]
 
 urlpatterns = router.urls + [

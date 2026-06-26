@@ -1,7 +1,10 @@
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
 from django.db.models import ProtectedError
 from django.shortcuts import get_object_or_404
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters, generics, status, viewsets
+from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -19,11 +22,15 @@ from .serializers import (
     TradeSerializer,
 )
 from .services import (
+    be_threshold_r,
     get_career_data,
     get_dashboard_summary,
     get_equity_curve,
+    get_performance_by_day,
+    get_performance_by_hour,
     get_pnl_by_setup,
     get_win_loss_distribution,
+    recompute_imported_pnl,
 )
 
 
@@ -37,6 +44,12 @@ class JournalViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
+
+    def perform_update(self, serializer):
+        old_capital = serializer.instance.starting_capital
+        journal = serializer.save()
+        if journal.starting_capital != old_capital:
+            recompute_imported_pnl(journal)
 
 
 class JournalScopedMixin:
@@ -171,10 +184,13 @@ class _AnalyticsBase(JournalScopedMixin, APIView):
     def get_trade_queryset(self):
         return Trade.objects.filter(journal=self.get_journal())
 
+    def get_be_threshold(self):
+        return be_threshold_r(self.get_journal())
+
 
 class DashboardSummaryView(_AnalyticsBase):
     def get(self, request, journal_id):
-        return Response(get_dashboard_summary(self.get_trade_queryset()))
+        return Response(get_dashboard_summary(self.get_trade_queryset(), self.get_be_threshold()))
 
 
 class EquityCurveView(_AnalyticsBase):
@@ -189,7 +205,7 @@ class EquityCurveView(_AnalyticsBase):
 
 class WinLossDistributionView(_AnalyticsBase):
     def get(self, request, journal_id):
-        return Response(get_win_loss_distribution(self.get_trade_queryset()))
+        return Response(get_win_loss_distribution(self.get_trade_queryset(), self.get_be_threshold()))
 
 
 class PnlBySetupView(_AnalyticsBase):
@@ -199,4 +215,84 @@ class PnlBySetupView(_AnalyticsBase):
 
 class CareerView(_AnalyticsBase):
     def get(self, request, journal_id):
-        return Response(get_career_data(self.get_trade_queryset()))
+        return Response(get_career_data(self.get_trade_queryset(), self.get_be_threshold()))
+
+
+def _parse_tz(request) -> tuple[ZoneInfo, str | None]:
+    """Return (ZoneInfo, error_message). error_message is None on success."""
+    tz_name = request.query_params.get("tz", "UTC")
+    try:
+        return ZoneInfo(tz_name), None
+    except (ZoneInfoNotFoundError, KeyError):
+        return None, f"Unknown timezone: '{tz_name}'. Use an IANA name such as 'America/New_York'."
+
+
+class PerformanceByDayView(_AnalyticsBase):
+    def get(self, request, journal_id):
+        tz, err = _parse_tz(request)
+        if err:
+            return Response({"error": err}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(get_performance_by_day(self.get_trade_queryset(), tz=tz, threshold=self.get_be_threshold()))
+
+
+class PerformanceByHourView(_AnalyticsBase):
+    def get(self, request, journal_id):
+        tz, err = _parse_tz(request)
+        if err:
+            return Response({"error": err}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(get_performance_by_hour(self.get_trade_queryset(), tz=tz, threshold=self.get_be_threshold()))
+
+
+class MT5ImportView(JournalScopedMixin, APIView):
+    """
+    POST /api/journals/{journal_id}/imports/mt5/
+
+    Accepts a multipart/form-data upload with field "file" containing an MT5 HTML report.
+    Parses, maps, and persists trades into the specified journal.
+    """
+
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser]
+
+    def post(self, request, journal_id):
+        journal = self.get_journal()
+
+        uploaded = request.FILES.get("file")
+        if not uploaded:
+            return Response(
+                {"success": False, "error": "No file provided. Send the MT5 HTML report as 'file'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        content_type = uploaded.content_type or ""
+        if not (
+            "html" in content_type.lower()
+            or uploaded.name.lower().endswith((".html", ".htm"))
+        ):
+            return Response(
+                {"success": False, "error": "Uploaded file must be an HTML file (.html or .htm)."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if journal.starting_capital <= 0:
+            return Response(
+                {
+                    "success": False,
+                    "error": (
+                        "Journal starting capital must be greater than 0 to compute trade performance. "
+                        "Update the journal's starting capital first."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        from .importers.mt5.importer import import_mt5_html
+
+        result = import_mt5_html(
+            journal=journal,
+            file=uploaded,
+            filename=uploaded.name,
+        )
+
+        http_status = status.HTTP_200_OK if result.get("success") else status.HTTP_422_UNPROCESSABLE_ENTITY
+        return Response(result, status=http_status)

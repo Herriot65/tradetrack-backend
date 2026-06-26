@@ -31,7 +31,7 @@ class Journal(models.Model):
 
 class Asset(models.Model):
     journal = models.ForeignKey(Journal, on_delete=models.CASCADE, related_name="assets")
-    symbol = models.CharField(max_length=20)
+    symbol = models.CharField(max_length=50)
     name = models.CharField(max_length=100, blank=True)
     is_archived = models.BooleanField(default=False)
 
@@ -171,3 +171,43 @@ class TradeScreenshot(models.Model):
 
     def __str__(self) -> str:
         return f"Screenshot for trade {self.trade_id}"
+
+
+class ImportBatch(models.Model):
+    SOURCE_MT5_HTML = "mt5_html"
+    SOURCE_CHOICES = [(SOURCE_MT5_HTML, "MT5 HTML Report")]
+
+    journal = models.ForeignKey(Journal, on_delete=models.CASCADE, related_name="import_batches")
+    source = models.CharField(max_length=50, choices=SOURCE_CHOICES)
+    filename = models.CharField(max_length=255, blank=True)
+    format_detected = models.CharField(max_length=20, blank=True)
+    imported_at = models.DateTimeField(auto_now_add=True)
+    raw_rows_found = models.IntegerField(default=0)
+    rows_parsed = models.IntegerField(default=0)
+    trades_created = models.IntegerField(default=0)
+    trades_skipped = models.IntegerField(default=0)
+    trades_failed = models.IntegerField(default=0)
+
+    class Meta:
+        ordering = ["-imported_at"]
+
+    def __str__(self) -> str:
+        return f"{self.source} import #{self.pk} for {self.journal}"
+
+
+class TradeImport(models.Model):
+    """Tracks which external trades have been imported, enabling deduplication."""
+
+    trade = models.OneToOneField(Trade, on_delete=models.CASCADE, related_name="import_record")
+    batch = models.ForeignKey(ImportBatch, on_delete=models.CASCADE, related_name="imported_trades")
+    journal = models.ForeignKey(Journal, on_delete=models.CASCADE, related_name="trade_imports")
+    source = models.CharField(max_length=50)
+    external_id = models.CharField(max_length=100)
+    raw_profit = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
+    raw_data = models.JSONField(default=dict)
+
+    class Meta:
+        unique_together = [("journal", "source", "external_id")]
+
+    def __str__(self) -> str:
+        return f"{self.source}:{self.external_id}"
