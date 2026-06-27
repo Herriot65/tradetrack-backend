@@ -27,9 +27,13 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-dev-only-change-me')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.environ.get("DEBUG", "False") == "True"
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = [
+    "localhost",
+    "127.0.0.1",
+    ".onrender.com",
+]
 
 
 # Application definition
@@ -57,6 +61,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
     'django.middleware.security.SecurityMiddleware',
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -88,16 +93,22 @@ WSGI_APPLICATION = 'config.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.environ.get('POSTGRES_DB', 'tradertrack'),
-        'USER': os.environ.get('POSTGRES_USER', 'tradertrack'),
-        'PASSWORD': os.environ.get('POSTGRES_PASSWORD', 'tradertrack'),
-        'HOST': os.environ.get('POSTGRES_HOST', 'localhost'),
-        'PORT': os.environ.get('POSTGRES_PORT', '5432'),
+import dj_database_url
+
+_DATABASE_URL = os.environ.get("DATABASE_URL")
+if _DATABASE_URL:
+    DATABASES = {"default": dj_database_url.parse(_DATABASE_URL, conn_max_age=600)}
+else:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": os.environ.get("POSTGRES_DB"),
+            "USER": os.environ.get("POSTGRES_USER"),
+            "PASSWORD": os.environ.get("POSTGRES_PASSWORD"),
+            "HOST": os.environ.get("POSTGRES_HOST"),
+            "PORT": os.environ.get("POSTGRES_PORT"),
+        }
     }
-}
 
 
 # Password validation
@@ -121,7 +132,9 @@ AUTH_PASSWORD_VALIDATORS = [
 AUTH_USER_MODEL = "users.User"
 
 CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5173",
+    o.strip()
+    for o in os.environ.get("CORS_ALLOWED_ORIGINS", "http://localhost:5173").split(",")
+    if o.strip()
 ]
 # Internationalization
 # https://docs.djangoproject.com/en/6.0/topics/i18n/
@@ -138,7 +151,8 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
-STATIC_URL = 'static/'
+STATIC_URL = "static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
 MEDIA_URL = "media/"
 MEDIA_ROOT = BASE_DIR / "media"
 

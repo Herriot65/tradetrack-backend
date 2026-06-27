@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: tradertrack-api
+    env: python
+    buildCommand: "./build.sh"
+    startCommand: "gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2"
+    envVars:
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: DEBUG
+        value: "False"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: tradertrack-db
+          property: connectionString
+      - key: CORS_ALLOWED_ORIGINS
+        value: "http://localhost:5173"   # replace with your deployed frontend URL
+      - key: SUPABASE_URL
+        sync: false   # set manually in Render dashboard
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+
+databases:
+  - name: tradertrack-db
+    databaseName: tradertrack
+    user: tradertrack
+    plan: free
