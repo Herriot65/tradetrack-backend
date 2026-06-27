@@ -90,7 +90,10 @@ class TradeSerializer(serializers.ModelSerializer):
     screenshots = TradeScreenshotSerializer(many=True, read_only=True)
 
     # Write-only ID input
-    asset_id = serializers.PrimaryKeyRelatedField(queryset=Asset.objects.none(), write_only=True)
+    asset_id = serializers.PrimaryKeyRelatedField(
+        queryset=Asset.objects.none(), write_only=True, required=False, allow_null=True
+    )
+    asset_symbol = serializers.CharField(write_only=True, required=False)
     setup_id = serializers.PrimaryKeyRelatedField(
         queryset=SetupTag.objects.none(), write_only=True, required=False, allow_null=True
     )
@@ -107,6 +110,7 @@ class TradeSerializer(serializers.ModelSerializer):
             "id",
             "asset",
             "asset_id",
+            "asset_symbol",
             "side",
             "entry_datetime",
             "exit_datetime",
@@ -153,24 +157,44 @@ class TradeSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 {"exit_datetime": "Exit datetime must be after entry datetime."}
             )
+        if not self.instance and not attrs.get("asset_id") and not attrs.get("asset_symbol"):
+            raise serializers.ValidationError(
+                {"asset_id": "Provide either asset_id or asset_symbol."}
+            )
         return attrs
 
+    def _resolve_asset(self, asset_id, asset_symbol, journal):
+        if asset_id is not None:
+            return asset_id
+        if asset_symbol:
+            symbol = asset_symbol.strip().upper()
+            asset, _ = Asset.objects.get_or_create(
+                journal=journal, symbol=symbol, defaults={"name": symbol}
+            )
+            return asset
+        return None
+
     def create(self, validated_data):
-        asset = validated_data.pop("asset_id")
+        asset_id = validated_data.pop("asset_id", None)
+        asset_symbol = validated_data.pop("asset_symbol", None)
         setup = validated_data.pop("setup_id", None)
         emotions = validated_data.pop("emotion_ids", [])
         mistakes = validated_data.pop("mistake_ids", [])
+        journal = validated_data.get("journal")
+        asset = self._resolve_asset(asset_id, asset_symbol, journal)
         trade = Trade.objects.create(asset=asset, setup=setup, **validated_data)
         trade.emotions.set(emotions)
         trade.mistakes.set(mistakes)
         return trade
 
     def update(self, instance, validated_data):
-        asset = validated_data.pop("asset_id", None)
+        asset_id = validated_data.pop("asset_id", None)
+        asset_symbol = validated_data.pop("asset_symbol", None)
         setup = validated_data.pop("setup_id", _UNSET)
         emotions = validated_data.pop("emotion_ids", None)
         mistakes = validated_data.pop("mistake_ids", None)
 
+        asset = self._resolve_asset(asset_id, asset_symbol, instance.journal)
         if asset is not None:
             instance.asset = asset
         if setup is not _UNSET:
