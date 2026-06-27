@@ -79,7 +79,7 @@ Test factories live in `tests/factories.py` (Factory Boy). Use them for all test
 - `Asset`, `EmotionTag`, `MistakeTag`, `SetupTag` — per-journal catalogs with `is_archived` soft-delete
 - `Trade` — FK to Journal, FK to Asset, FK to SetupTag, M2M to EmotionTag and MistakeTag; pnl_r and status are nullable
 - `TradeEmotion`, `TradeMistake` — explicit M2M through tables
-- `TradeScreenshot` — image uploads linked to a trade
+- `TradeScreenshot` — stores `image_url` (Supabase public URL) + `uploaded_at`; no binary data in DB
 
 ### API Structure
 

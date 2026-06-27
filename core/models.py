@@ -163,7 +163,8 @@ class TradeMistake(models.Model):
 
 class TradeScreenshot(models.Model):
     trade = models.ForeignKey(Trade, on_delete=models.CASCADE, related_name="screenshots")
-    image = models.ImageField(upload_to="trade_screenshots/")
+    image_url = models.URLField(max_length=2000)
+    section = models.CharField(max_length=100, null=True, blank=True)
     uploaded_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

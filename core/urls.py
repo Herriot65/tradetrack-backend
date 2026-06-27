@@ -20,6 +20,7 @@ from .views import (
     SetupTagListCreateView,
     TradeDetailView,
     TradeListCreateView,
+    TradeScreenshotView,
     WinLossDistributionView,
 )
 
@@ -37,6 +38,8 @@ journal_nested = [
     path("setup-tags/<int:pk>/", SetupTagDetailView.as_view(), name="journal-setup-tag-detail"),
     path("trades/", TradeListCreateView.as_view(), name="journal-trades"),
     path("trades/<int:pk>/", TradeDetailView.as_view(), name="journal-trade-detail"),
+    path("trades/<int:trade_id>/screenshots/", TradeScreenshotView.as_view(), name="journal-trade-screenshots"),
+    path("trades/<int:trade_id>/screenshots/<int:pk>/", TradeScreenshotView.as_view(), name="journal-trade-screenshot-detail"),
     path("dashboard/summary/", DashboardSummaryView.as_view(), name="journal-dashboard-summary"),
     path("analytics/equity-curve/", EquityCurveView.as_view(), name="journal-equity-curve"),
     path("analytics/win-loss-distribution/", WinLossDistributionView.as_view(), name="journal-win-loss"),

@@ -1,5 +1,6 @@
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from django.db import transaction
 from django.db.models import ProtectedError
 from django.shortcuts import get_object_or_404
 from django_filters.rest_framework import DjangoFilterBackend
@@ -10,7 +11,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .filters import TradeFilter
-from .models import Asset, EmotionTag, Journal, MistakeTag, SetupTag, Trade
+from .models import Asset, EmotionTag, Journal, MistakeTag, SetupTag, Trade, TradeScreenshot
 from .pagination import JournalPagination
 from .permissions import IsJournalOwner
 from .serializers import (
@@ -19,6 +20,7 @@ from .serializers import (
     JournalSerializer,
     MistakeTagSerializer,
     SetupTagSerializer,
+    TradeScreenshotSerializer,
     TradeSerializer,
 )
 from .services import (
@@ -50,6 +52,11 @@ class JournalViewSet(viewsets.ModelViewSet):
         journal = serializer.save()
         if journal.starting_capital != old_capital:
             recompute_imported_pnl(journal)
+
+    def perform_destroy(self, instance):
+        with transaction.atomic():
+            instance.trades.all().delete()
+            instance.delete()
 
 
 class JournalScopedMixin:
@@ -148,7 +155,7 @@ class TradeListCreateView(JournalScopedMixin, generics.ListCreateAPIView):
         return (
             Trade.objects.filter(journal=self.get_journal())
             .select_related("asset", "setup")
-            .prefetch_related("emotions", "mistakes")
+            .prefetch_related("emotions", "mistakes", "screenshots")
         )
 
     def get_serializer_context(self):
@@ -169,7 +176,7 @@ class TradeDetailView(JournalScopedMixin, generics.RetrieveUpdateDestroyAPIView)
         return (
             Trade.objects.filter(journal=self.get_journal())
             .select_related("asset", "setup")
-            .prefetch_related("emotions", "mistakes")
+            .prefetch_related("emotions", "mistakes", "screenshots")
         )
 
     def get_serializer_context(self):
@@ -241,6 +248,58 @@ class PerformanceByHourView(_AnalyticsBase):
         if err:
             return Response({"error": err}, status=status.HTTP_400_BAD_REQUEST)
         return Response(get_performance_by_hour(self.get_trade_queryset(), tz=tz, threshold=self.get_be_threshold()))
+
+
+class TradeScreenshotView(JournalScopedMixin, APIView):
+    """
+    GET  /api/journals/{journal_id}/trades/{trade_id}/screenshots/  — list screenshots
+    POST /api/journals/{journal_id}/trades/{trade_id}/screenshots/  — upload a screenshot
+    DELETE /api/journals/{journal_id}/trades/{trade_id}/screenshots/{pk}/  — delete a screenshot
+    """
+
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser]
+
+    def _get_trade(self, trade_id):
+        return get_object_or_404(Trade, pk=trade_id, journal=self.get_journal())
+
+    def get(self, request, journal_id, trade_id):
+        trade = self._get_trade(trade_id)
+        screenshots = trade.screenshots.all()
+        return Response(TradeScreenshotSerializer(screenshots, many=True).data)
+
+    def post(self, request, journal_id, trade_id):
+        from .supabase_client import upload_screenshot
+
+        trade = self._get_trade(trade_id)
+        file_obj = request.FILES.get("file")
+        if not file_obj:
+            return Response({"error": "No file provided. Send the image as 'file'."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            image_url = upload_screenshot(trade.pk, file_obj)
+        except ValueError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as exc:
+            return Response({"error": f"Upload failed: {exc}"}, status=status.HTTP_502_BAD_GATEWAY)
+
+        section = request.data.get("section") or None
+        screenshot = TradeScreenshot.objects.create(trade=trade, image_url=image_url, section=section)
+        return Response(TradeScreenshotSerializer(screenshot).data, status=status.HTTP_201_CREATED)
+
+    def delete(self, request, journal_id, trade_id, pk):
+        from .supabase_client import delete_screenshot
+
+        trade = self._get_trade(trade_id)
+        screenshot = get_object_or_404(TradeScreenshot, pk=pk, trade=trade)
+
+        try:
+            delete_screenshot(screenshot.image_url)
+        except Exception:
+            pass  # best-effort; still remove DB record
+
+        screenshot.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class MT5ImportView(JournalScopedMixin, APIView):

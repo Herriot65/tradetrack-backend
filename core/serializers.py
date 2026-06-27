@@ -53,8 +53,8 @@ class SetupTagSerializer(serializers.ModelSerializer):
 class TradeScreenshotSerializer(serializers.ModelSerializer):
     class Meta:
         model = TradeScreenshot
-        fields = ("id", "image", "uploaded_at")
-        read_only_fields = ("id", "uploaded_at")
+        fields = ("id", "image_url", "section", "uploaded_at")
+        read_only_fields = ("id", "image_url", "uploaded_at")
 
 
 class _AssetBriefSerializer(serializers.ModelSerializer):
@@ -87,6 +87,7 @@ class TradeSerializer(serializers.ModelSerializer):
     setup = _SetupTagBriefSerializer(read_only=True)
     emotions = _EmotionTagBriefSerializer(many=True, read_only=True)
     mistakes = _MistakeTagBriefSerializer(many=True, read_only=True)
+    screenshots = TradeScreenshotSerializer(many=True, read_only=True)
 
     # Write-only ID input
     asset_id = serializers.PrimaryKeyRelatedField(queryset=Asset.objects.none(), write_only=True)
@@ -125,6 +126,7 @@ class TradeSerializer(serializers.ModelSerializer):
             "mistake_ids",
             "status",
             "notes",
+            "screenshots",
             "created_at",
             "updated_at",
         )
