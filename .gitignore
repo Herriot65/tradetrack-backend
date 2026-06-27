@@ -16,3 +16,6 @@ htmlcov/
 
 staticfiles/
 media/
+.claude/
+BACKEND_REPORT.md
+CLAUDE.md
