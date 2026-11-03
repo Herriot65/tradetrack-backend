@@ -1,17 +1,16 @@
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from django.db import transaction
+from django.db import transaction, IntegrityError
 from django.db.models import ProtectedError
 from django.shortcuts import get_object_or_404
-from django_filters.rest_framework import DjangoFilterBackend
-from rest_framework import filters, generics, status, viewsets
+from rest_framework import filters, generics, status, viewsets, serializers
 from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .filters import TradeFilter
-from .models import Asset, EmotionTag, Journal, MistakeTag, SetupTag, Trade, TradeScreenshot
+from .filters import TradeFilter, JournalTradeFilterBackend, TradeOrderingFilter
+from .models import Asset, EmotionTag, Journal, MistakeTag, SetupTag, Trade, TradeScreenshot, TradeCustomField
 from .pagination import JournalPagination
 from .permissions import IsJournalOwner
 from .serializers import (
@@ -22,6 +21,7 @@ from .serializers import (
     SetupTagSerializer,
     TradeScreenshotSerializer,
     TradeSerializer,
+    TradeCustomFieldSerializer,
 )
 from .services import (
     be_threshold_r,
@@ -142,15 +142,31 @@ class SetupTagDetailView(CatalogDetailView):
     model = SetupTag
 
 
+class TradeCustomFieldListCreateView(CatalogListCreateView):
+    serializer_class = TradeCustomFieldSerializer
+    model = TradeCustomField
+    pagination_class = None
+
+    def get_serializer_context(self):
+        return {**super().get_serializer_context(), "journal": self.get_journal()}
+
+    def perform_create(self, serializer):
+        try:
+            with transaction.atomic():
+                serializer.save(journal=self.get_journal())
+        except IntegrityError:
+            raise serializers.ValidationError({"label": "A field with this name already exists in this section."})
+
+
 class TradeListCreateView(JournalScopedMixin, generics.ListCreateAPIView):
     serializer_class = TradeSerializer
     permission_classes = [IsAuthenticated]
     pagination_class = JournalPagination
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filter_backends = [JournalTradeFilterBackend, filters.SearchFilter, TradeOrderingFilter]
     filterset_class = TradeFilter
     search_fields = ["asset__symbol", "notes"]
-    ordering_fields = ["entry_datetime", "created_at", "pnl_r"]
-    ordering = ["-entry_datetime"]
+    ordering_fields = ["entry_datetime", "created_at", "pnl_r", "asset__symbol", "id"]
+    ordering = ["-entry_datetime", "-id"]
 
     def get_queryset(self):
         return (

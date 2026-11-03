@@ -1,6 +1,8 @@
+import math
+
 from rest_framework import serializers
 
-from .models import Asset, EmotionTag, Journal, MistakeTag, SetupTag, Trade, TradeScreenshot
+from .models import Asset, EmotionTag, Journal, MistakeTag, SetupTag, Trade, TradeScreenshot, TradeCustomField
 
 _UNSET = object()
 
@@ -87,7 +89,35 @@ class _MistakeTagBriefSerializer(serializers.ModelSerializer):
         fields = ("id", "label")
 
 
+class TradeCustomFieldSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TradeCustomField
+        fields = ("id", "section", "label", "field_type", "options", "created_at")
+        read_only_fields = ("id", "created_at")
+
+    def validate(self, attrs):
+        label = attrs.get("label", "").strip()
+        if not label:
+            raise serializers.ValidationError({"label": "Enter a field name."})
+        journal = self.context["journal"]
+        if TradeCustomField.objects.filter(journal=journal, section=attrs["section"], label__iexact=label).exists():
+            raise serializers.ValidationError({"label": "A field with this name already exists in this section."})
+        options = attrs.get("options", [])
+        if not isinstance(options, list) or len(options) > 100 or any(not isinstance(option, str) or not option.strip() or len(option) > 100 for option in options):
+            raise serializers.ValidationError({"options": "Use up to 100 non-empty options, each at most 100 characters."})
+        options = [option.strip() for option in options]
+        if len(set(options)) != len(options):
+            raise serializers.ValidationError({"options": "Each option must be unique."})
+        if attrs.get("field_type", "text") == "select" and not options:
+            raise serializers.ValidationError({"options": "Add at least one dropdown option."})
+        if attrs.get("field_type", "text") != "select" and options:
+            raise serializers.ValidationError({"options": "Options are only supported for dropdown fields."})
+        attrs["label"], attrs["options"] = label, options
+        return attrs
+
+
 class TradeSerializer(serializers.ModelSerializer):
+    effective_status = serializers.SerializerMethodField()
     # Read-only nested output
     asset = _AssetBriefSerializer(read_only=True)
     setup = _SetupTagBriefSerializer(read_only=True)
@@ -138,6 +168,8 @@ class TradeSerializer(serializers.ModelSerializer):
             "mistake_ids",
             "status",
             "notes",
+            "custom_fields",
+            "effective_status",
             "screenshots",
             "created_at",
             "updated_at",
@@ -152,6 +184,38 @@ class TradeSerializer(serializers.ModelSerializer):
             self.fields["setup_id"].queryset = SetupTag.objects.filter(journal=journal)
             self.fields["emotion_ids"].child_relation.queryset = EmotionTag.objects.filter(journal=journal)
             self.fields["mistake_ids"].child_relation.queryset = MistakeTag.objects.filter(journal=journal)
+
+    def get_effective_status(self, trade):
+        from .services import effective_trade_status
+        return effective_trade_status(trade, self.context.get("journal"))
+
+    def validate_custom_fields(self, values):
+        if not isinstance(values, dict):
+            raise serializers.ValidationError("Custom fields must be an object.")
+        if not values:
+            return values
+        journal = self.context.get("journal") or getattr(self.instance, "journal", None)
+        definitions = {str(field.id): field for field in TradeCustomField.objects.filter(journal=journal)}
+        errors = {}
+        for key, value in values.items():
+            definition = definitions.get(key)
+            if definition is None:
+                errors[key] = "This field does not belong to this journal."
+                continue
+            if value is None or value == "":
+                continue
+            kind = definition.field_type
+            valid = (
+                (kind == "text" and isinstance(value, str) and len(value) <= 2000)
+                or (kind == "number" and type(value) in (int, float) and math.isfinite(value))
+                or (kind == "boolean" and isinstance(value, bool))
+                or (kind == "select" and isinstance(value, str) and value in definition.options)
+            )
+            if not valid:
+                errors[key] = f"Enter a valid value for {definition.label}."
+        if errors:
+            raise serializers.ValidationError(errors)
+        return values
 
     def validate_status(self, value):
         if value == "OPEN":

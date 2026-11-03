@@ -4,6 +4,7 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.db import models
+from django.db.models.functions import Lower
 
 
 class Journal(models.Model):
@@ -88,6 +89,27 @@ class SetupTag(models.Model):
         return self.label
 
 
+class TradeCustomField(models.Model):
+    SECTION_CHOICES = [(key, label) for key, label in [
+        ("execution", "Execution"), ("performance", "Performance"), ("setup", "Setup"),
+        ("psychology", "Psychology"), ("notes", "Notes"), ("trade_notes", "Trade notes"),
+    ]]
+    TYPE_CHOICES = [("text", "Text"), ("number", "Number"), ("select", "Dropdown"), ("boolean", "Yes / no")]
+    journal = models.ForeignKey(Journal, on_delete=models.CASCADE, related_name="trade_custom_fields")
+    section = models.CharField(max_length=20, choices=SECTION_CHOICES)
+    label = models.CharField(max_length=80)
+    field_type = models.CharField(max_length=10, choices=TYPE_CHOICES, default="text")
+    options = models.JSONField(default=list, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["id"]
+        constraints = [models.UniqueConstraint(Lower("label"), "journal", "section", name="unique_trade_field_label_in_section")]
+
+    def __str__(self):
+        return f"{self.section}: {self.label}"
+
+
 class Trade(models.Model):
     class TrendDirection(models.TextChoices):
         BULLISH = "BULLISH", "Bullish"
@@ -128,6 +150,7 @@ class Trade(models.Model):
     status = models.CharField(max_length=10, choices=Status.choices, null=True, blank=True)
     notes = models.TextField(null=True, blank=True)
     is_synthetic = models.BooleanField(default=False, db_index=True)
+    custom_fields = models.JSONField(default=dict, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

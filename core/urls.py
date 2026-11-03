@@ -21,6 +21,7 @@ from .views import (
     SyntheticDataView,
     TradeDetailView,
     TradeListCreateView,
+    TradeCustomFieldListCreateView,
     TradeScreenshotView,
     WinLossDistributionView,
 )
@@ -29,6 +30,7 @@ router = DefaultRouter()
 router.register("journals", JournalViewSet, basename="journal")
 
 journal_nested = [
+    path("custom-fields/", TradeCustomFieldListCreateView.as_view(), name="journal-custom-fields"),
     path("assets/", AssetListCreateView.as_view(), name="journal-assets"),
     path("assets/<int:pk>/", AssetDetailView.as_view(), name="journal-asset-detail"),
     path("emotion-tags/", EmotionTagListCreateView.as_view(), name="journal-emotion-tags"),

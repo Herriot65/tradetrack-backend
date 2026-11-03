@@ -77,6 +77,23 @@ def _effective_be(qs: QuerySet[Trade], threshold: Decimal = Decimal("0")) -> Que
     return qs.filter(Q(status="BE") | (Q(status__isnull=True) & Q(pnl_r=0)))
 
 
+def effective_trade_status(trade, journal=None):
+    if trade.exit_datetime is None or trade.pnl_r is None:
+        return "OPEN"
+    return trade.status or _auto_status(trade.pnl_r, be_threshold_r(journal or trade.journal))
+
+
+def filter_trade_status(queryset, value, journal):
+    """Apply journal classification before pagination, preserving manual overrides."""
+    if not value:
+        return queryset
+    if value == "OPEN":
+        return queryset.filter(Q(exit_datetime__isnull=True) | Q(pnl_r__isnull=True))
+    closed = _closed_trades(queryset)
+    classify = {"WIN": _effective_win, "LOSS": _effective_loss, "BE": _effective_be}[value]
+    return classify(closed, be_threshold_r(journal))
+
+
 def calculate_max_drawdown(trades: Iterable[Trade]) -> Decimal:
     peak = Decimal("0")
     cumulative = Decimal("0")

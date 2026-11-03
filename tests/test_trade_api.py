@@ -268,3 +268,106 @@ def test_trade_score_database_constraint(journal):
     from django.db import IntegrityError, transaction
     with pytest.raises(IntegrityError), transaction.atomic():
         TradeFactory(journal=journal, trade_score=11)
+
+
+@pytest.mark.django_db
+def test_filters_and_sorting_apply_before_pagination(authenticated_client, journal):
+    from django.utils import timezone
+    asset = AssetFactory(journal=journal, symbol="EURUSD")
+    older_asset = AssetFactory(journal=journal, symbol="XAUUSD")
+    setup = SetupTagFactory(journal=journal)
+    now = timezone.now()
+    records = []
+    for index in range(45):
+        entry = now - timezone.timedelta(days=index)
+        records.append(Trade(journal=journal, asset=asset if index < 25 else older_asset, side="BUY", entry_datetime=entry, exit_datetime=entry + timezone.timedelta(hours=1), pnl_r=Decimal("-1") if index < 25 else Decimal(index), setup=setup if index >= 25 else None))
+    Trade.objects.bulk_create(records)
+    url = f"/api/journals/{journal.id}/trades/"
+    first = authenticated_client.get(url)
+    assert first.data["count"] == 45
+    assert all(row["effective_status"] == "LOSS" for row in first.data["results"])
+    wins = authenticated_client.get(url, {"status": "WIN"})
+    assert wins.status_code == 200
+    assert wins.data["count"] == 20
+    assert len(wins.data["results"]) == 20
+    assert all(row["effective_status"] == "WIN" for row in wins.data["results"])
+    assert authenticated_client.get(url, {"status": "LOSS"}).data["count"] == 25
+    second = authenticated_client.get(url, {"status": "LOSS", "page": 2})
+    assert len(second.data["results"]) == 5
+    assert authenticated_client.get(url, {"search": "XAUUSD"}).data["count"] == 20
+    assert authenticated_client.get(url, {"asset": older_asset.id, "status": "WIN"}).data["count"] == 20
+    assert authenticated_client.get(url, {"setup": setup.id}).data["count"] == 20
+    sorted_rows = authenticated_client.get(url, {"ordering": "-pnl_r,-id"})
+    assert Decimal(sorted_rows.data["results"][0]["pnl_r"]) == Decimal("44")
+    asset_sorted = authenticated_client.get(url, {"ordering": "-asset__symbol,-id"})
+    assert asset_sorted.data["results"][0]["asset"]["symbol"] == "XAUUSD"
+    TradeFactory(journal=journal, pnl_r=None, exit_datetime=None)
+    with_open = authenticated_client.get(url, {"ordering": "-pnl_r,-id"})
+    assert Decimal(with_open.data["results"][0]["pnl_r"]) == Decimal("44")
+
+
+@pytest.mark.django_db
+def test_status_filters_follow_be_rule_manual_overrides_and_open_trades(authenticated_client, journal):
+    journal.break_even_value = Decimal("0.20")
+    journal.save()
+    for value in ["0.1", "-0.1", "1", "-1"]:
+        TradeFactory(journal=journal, pnl_r=Decimal(value), status=None)
+    TradeFactory(journal=journal, pnl_r=Decimal("0.1"), status="WIN")
+    TradeFactory(journal=journal, pnl_r=None, exit_datetime=None)
+    TradeFactory(journal=journal, pnl_r=Decimal("1"), exit_datetime=None)
+    url = f"/api/journals/{journal.id}/trades/"
+    for status, count in [("WIN", 2), ("LOSS", 1), ("BE", 2), ("OPEN", 2)]:
+        response = authenticated_client.get(url, {"status": status})
+        assert response.status_code == 200
+        assert response.data["count"] == count
+        assert all(row["effective_status"] == status for row in response.data["results"])
+    assert authenticated_client.get(url, {"status": "not-a-status"}).status_code == 400
+
+
+@pytest.mark.django_db
+def test_journal_custom_fields_round_trip_and_stay_scoped(authenticated_client, journal):
+    from core.models import TradeCustomField
+    field_url = f"/api/journals/{journal.id}/custom-fields/"
+    definitions = []
+    for section, kind, options in [("setup", "select", ["Trending", "Ranging"]), ("execution", "number", []), ("psychology", "boolean", []), ("notes", "text", [])]:
+        created = authenticated_client.post(field_url, {"section": section, "label": f"Extra {kind}", "field_type": kind, "options": options}, format="json")
+        assert created.status_code == 201
+        definitions.append(created.data)
+    values = {str(definitions[0]["id"]): "Trending", str(definitions[1]["id"]): 0, str(definitions[2]["id"]): False, str(definitions[3]["id"]): "A patient entry"}
+    response = authenticated_client.post(f"/api/journals/{journal.id}/trades/", trade_payload(journal, custom_fields=values), format="json")
+    assert response.status_code == 201
+    url = f"/api/journals/{journal.id}/trades/{response.data['id']}/"
+    assert authenticated_client.get(url).data["custom_fields"] == values
+    unchanged = authenticated_client.patch(url, {"notes": "Edited"}, format="json")
+    assert unchanged.data["custom_fields"] == values
+    cleared = authenticated_client.patch(url, {"custom_fields": {str(definitions[0]["id"]): None}}, format="json")
+    assert cleared.status_code == 200
+    assert cleared.data["custom_fields"] == {str(definitions[0]["id"]): None}
+    assert len(authenticated_client.get(field_url).data) == 4
+    foreign_journal = JournalFactory()
+    foreign_field = TradeCustomField.objects.create(journal=foreign_journal, section="setup", label="Private")
+    invalid = authenticated_client.patch(url, {"custom_fields": {str(foreign_field.id): "No"}}, format="json")
+    assert invalid.status_code == 400
+    assert authenticated_client.get(f"/api/journals/{foreign_journal.id}/custom-fields/").status_code == 404
+    assert authenticated_client.post(f"/api/journals/{foreign_journal.id}/custom-fields/", {"section":"setup", "label":"No access"}, format="json").status_code == 404
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("kind,options,value", [("number", [], "not a number"), ("number", [], True), ("boolean", [], "yes"), ("select", ["A", "B"], "C"), ("text", [], {"nested": "object"})])
+def test_custom_field_values_are_typed(authenticated_client, journal, kind, options, value):
+    from core.models import TradeCustomField
+    definition = TradeCustomField.objects.create(journal=journal, section="setup", label="Typed", field_type=kind, options=options)
+    response = authenticated_client.post(f"/api/journals/{journal.id}/trades/", trade_payload(journal, custom_fields={str(definition.id): value}), format="json")
+    assert response.status_code == 400
+    assert "custom_fields" in response.data
+
+
+@pytest.mark.django_db
+def test_custom_field_definitions_validate_duplicates_and_options(authenticated_client, journal):
+    url = f"/api/journals/{journal.id}/custom-fields/"
+    payload = {"section": "setup", "label": "Market state", "field_type": "select", "options": ["Trending", "Ranging"]}
+    assert authenticated_client.post(url, payload, format="json").status_code == 201
+    assert authenticated_client.post(url, {**payload, "label": "MARKET STATE"}, format="json").status_code == 400
+    assert authenticated_client.post(url, {**payload, "section": "execution"}, format="json").status_code == 201
+    for patch in [{"label":" "}, {"label":"Another", "options":[]}, {"label":"Another", "options":["A","A"]}, {"label":"Another", "section":"invalid"}]:
+        assert authenticated_client.post(url, {**payload, **patch}, format="json").status_code == 400
