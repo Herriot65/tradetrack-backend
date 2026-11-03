@@ -124,6 +124,8 @@ class TradeSerializer(serializers.ModelSerializer):
             "pnl_r",
             "commission",
             "swap",
+            "reference_timeframe",
+            "trade_score",
             "opportunity_timeframe",
             "entry_timeframe",
             "trend_direction",

@@ -2,6 +2,7 @@ from decimal import Decimal
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.core.validators import MinValueValidator, MaxValueValidator
 from django.db import models
 
 
@@ -112,6 +113,8 @@ class Trade(models.Model):
     commission = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     swap = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
 
+    reference_timeframe = models.CharField(max_length=10, null=True, blank=True)
+    trade_score = models.PositiveSmallIntegerField(null=True, blank=True, validators=[MinValueValidator(0), MaxValueValidator(10)])
     opportunity_timeframe = models.CharField(max_length=10, null=True, blank=True)
     entry_timeframe = models.CharField(max_length=10, null=True, blank=True)
     trend_direction = models.CharField(max_length=20, choices=TrendDirection.choices, null=True, blank=True)
@@ -138,6 +141,12 @@ class Trade(models.Model):
 
     class Meta:
         ordering = ["-entry_datetime", "-created_at"]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(trade_score__isnull=True) | (models.Q(trade_score__gte=0) & models.Q(trade_score__lte=10)),
+                name="trade_score_between_0_and_10",
+            ),
+        ]
         indexes = [
             models.Index(fields=["journal", "entry_datetime"]),
             models.Index(fields=["journal", "status"]),

@@ -217,3 +217,54 @@ def test_setup_tag_pnl_grouping(authenticated_client, user, journal):
 
     assert response.status_code == 200
     assert response.data == [{"setup": "Breakout", "total_r": 2.0}]
+
+
+@pytest.mark.django_db
+def test_reference_timeframe_and_score_round_trip(authenticated_client, journal):
+    created = authenticated_client.post(
+        f"/api/journals/{journal.id}/trades/",
+        trade_payload(journal, reference_timeframe="D1", trade_score=0), format="json",
+    )
+    assert created.status_code == 201
+    assert created.data["reference_timeframe"] == "D1"
+    assert created.data["trade_score"] == 0
+    trade_id = created.data["id"]
+    detail_url = f"/api/journals/{journal.id}/trades/{trade_id}/"
+    updated = authenticated_client.patch(detail_url, {"reference_timeframe": "H4", "trade_score": 10}, format="json")
+    assert updated.status_code == 200
+    reread = authenticated_client.get(detail_url)
+    assert reread.data["reference_timeframe"] == "H4"
+    assert reread.data["trade_score"] == 10
+    listed = authenticated_client.get(f"/api/journals/{journal.id}/trades/")
+    assert listed.data["results"][0]["trade_score"] == 10
+    unchanged = authenticated_client.patch(detail_url, {"notes": "Other edits"}, format="json")
+    assert unchanged.data["trade_score"] == 10
+    cleared = authenticated_client.patch(detail_url, {"reference_timeframe": None, "trade_score": None}, format="json")
+    assert cleared.status_code == 200
+    assert cleared.data["reference_timeframe"] is None
+    assert cleared.data["trade_score"] is None
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("score", [-1, 11, 5.5, "not a score"])
+def test_trade_score_rejects_values_outside_integer_scale(authenticated_client, journal, score):
+    response = authenticated_client.post(
+        f"/api/journals/{journal.id}/trades/", trade_payload(journal, trade_score=score), format="json",
+    )
+    assert response.status_code == 400
+    assert "trade_score" in response.data
+
+
+@pytest.mark.django_db
+def test_existing_trades_have_optional_reference_and_score(authenticated_client, journal):
+    trade = TradeFactory(journal=journal)
+    response = authenticated_client.get(f"/api/journals/{journal.id}/trades/{trade.id}/")
+    assert response.data["reference_timeframe"] is None
+    assert response.data["trade_score"] is None
+
+
+@pytest.mark.django_db
+def test_trade_score_database_constraint(journal):
+    from django.db import IntegrityError, transaction
+    with pytest.raises(IntegrityError), transaction.atomic():
+        TradeFactory(journal=journal, trade_score=11)
