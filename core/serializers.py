@@ -16,10 +16,16 @@ class JournalSerializer(serializers.ModelSerializer):
             "currency",
             "break_even_method",
             "break_even_value",
+            "synthetic_data_enabled",
             "created_at",
             "updated_at",
         )
-        read_only_fields = ("id", "created_at", "updated_at")
+        read_only_fields = (
+            "id",
+            "synthetic_data_enabled",
+            "created_at",
+            "updated_at",
+        )
 
 
 class AssetSerializer(serializers.ModelSerializer):

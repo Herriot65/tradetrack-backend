@@ -34,6 +34,7 @@ from .services import (
     get_win_loss_distribution,
     recompute_imported_pnl,
 )
+from .synthetic_data import generate_synthetic_trades, remove_synthetic_trades
 
 
 class JournalViewSet(viewsets.ModelViewSet):
@@ -248,6 +249,78 @@ class PerformanceByHourView(_AnalyticsBase):
         if err:
             return Response({"error": err}, status=status.HTTP_400_BAD_REQUEST)
         return Response(get_performance_by_hour(self.get_trade_queryset(), tz=tz, threshold=self.get_be_threshold()))
+
+
+class SyntheticDataView(JournalScopedMixin, APIView):
+    """
+    GET    — report whether synthetic data is enabled and can be enabled
+    POST   — generate synthetic trades (only when the journal has no trades)
+    DELETE — remove synthetic trades and the catalog records they created
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, journal_id):
+        journal = self.get_journal()
+        trade_count = journal.trades.count()
+        return Response(
+            {
+                "enabled": journal.synthetic_data_enabled,
+                "trade_count": trade_count,
+                "can_enable": trade_count == 0,
+            }
+        )
+
+    def post(self, request, journal_id):
+        journal = self.get_journal()
+
+        if journal.synthetic_data_enabled:
+            return Response(
+                {
+                    "enabled": True,
+                    "trade_count": journal.trades.count(),
+                    "trades_created": 0,
+                }
+            )
+
+        if journal.trades.exists():
+            return Response(
+                {
+                    "success": False,
+                    "error": (
+                        "Synthetic data can only be enabled on a journal with no "
+                        "existing trades."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        with transaction.atomic():
+            result = generate_synthetic_trades(journal)
+            journal.synthetic_data_enabled = True
+            journal.synthetic_catalog_ids = result["catalog_ids"]
+            journal.save(
+                update_fields=["synthetic_data_enabled", "synthetic_catalog_ids"]
+            )
+
+        return Response(
+            {
+                "enabled": True,
+                "trade_count": result["trades_created"],
+                "trades_created": result["trades_created"],
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+    def delete(self, request, journal_id):
+        journal = self.get_journal()
+
+        with transaction.atomic():
+            deleted = remove_synthetic_trades(journal)
+            journal.synthetic_data_enabled = False
+            journal.save(update_fields=["synthetic_data_enabled"])
+
+        return Response({"enabled": False, "trades_deleted": deleted})
 
 
 class TradeScreenshotView(JournalScopedMixin, APIView):

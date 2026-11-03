@@ -18,6 +18,7 @@ from .views import (
     PnlBySetupView,
     SetupTagDetailView,
     SetupTagListCreateView,
+    SyntheticDataView,
     TradeDetailView,
     TradeListCreateView,
     TradeScreenshotView,
@@ -48,6 +49,7 @@ journal_nested = [
     path("analytics/performance-by-day/", PerformanceByDayView.as_view(), name="journal-performance-by-day"),
     path("analytics/performance-by-hour/", PerformanceByHourView.as_view(), name="journal-performance-by-hour"),
     path("imports/mt5/", MT5ImportView.as_view(), name="journal-import-mt5"),
+    path("synthetic-data/", SyntheticDataView.as_view(), name="journal-synthetic-data"),
 ]
 
 urlpatterns = router.urls + [

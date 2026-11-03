@@ -16,6 +16,8 @@ class Journal(models.Model):
     currency = models.CharField(max_length=10, default="USD")
     break_even_method = models.CharField(max_length=10, choices=BREAK_EVEN_METHOD_CHOICES, default="ratio")
     break_even_value = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    synthetic_data_enabled = models.BooleanField(default=False)
+    synthetic_catalog_ids = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -122,6 +124,7 @@ class Trade(models.Model):
     # null = auto-derive (pnl_r > 0 → WIN, < 0 → LOSS, == 0 → BE, no exit → OPEN)
     status = models.CharField(max_length=10, choices=Status.choices, null=True, blank=True)
     notes = models.TextField(null=True, blank=True)
+    is_synthetic = models.BooleanField(default=False, db_index=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
