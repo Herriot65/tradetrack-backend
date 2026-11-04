@@ -138,6 +138,16 @@ CORS_ALLOWED_ORIGINS = [
     for o in os.environ.get("CORS_ALLOWED_ORIGINS", "http://localhost:5173").split(",")
     if o.strip()
 ]
+# Vercel preview deployments use a new hostname for each deployment. Keep their
+# HTTPS origins usable without requiring a Render environment change per preview.
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    pattern.strip()
+    for pattern in os.environ.get(
+        "CORS_ALLOWED_ORIGIN_REGEXES",
+        r"^https://([a-z0-9-]+\.)*vercel\.app$",
+    ).split(",")
+    if pattern.strip()
+]
 # Internationalization
 # https://docs.djangoproject.com/en/6.0/topics/i18n/
 
