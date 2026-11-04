@@ -526,8 +526,8 @@ class TestMT5ImportEndpoint:
         batch = ImportBatch.objects.get(journal=self.journal)
         assert batch.filename == "my_statement.html"
 
-    def test_pnl_recomputed_when_capital_changes(self):
-        """Patching starting_capital must recompute pnl_r for all imported trades."""
+    def test_imported_profit_keeps_original_basis_when_capital_changes(self):
+        """Changing capital must preserve the imported profit and its original basis."""
         # Import with capital=10000: EURUSD profit=20 → pnl_r=0.20, GBPUSD profit=25 → pnl_r=0.25
         self._upload(DEALS_HTML)
 
@@ -537,9 +537,12 @@ class TestMT5ImportEndpoint:
 
         eurusd = Trade.objects.get(journal=self.journal, asset__symbol="EURUSD")
         gbpusd = Trade.objects.get(journal=self.journal, asset__symbol="GBPUSD")
-        # 20 / 5000 * 100 = 0.40, 25 / 5000 * 100 = 0.50
-        assert eurusd.pnl_r == Decimal("0.40")
-        assert gbpusd.pnl_r == Decimal("0.50")
+        assert eurusd.pnl_r == Decimal("0.20")
+        assert gbpusd.pnl_r == Decimal("0.25")
+        assert eurusd.pnl_amount == Decimal("20")
+        assert gbpusd.pnl_amount == Decimal("25")
+        assert eurusd.capital_basis == Decimal("10000")
+        assert gbpusd.capital_basis == Decimal("10000")
 
     def test_pnl_not_recomputed_when_other_settings_change(self):
         """Patching non-capital fields must leave pnl_r untouched."""

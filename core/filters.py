@@ -16,7 +16,7 @@ class TradeOrderingFilter(drf_filters.OrderingFilter):
         for field in ordering:
             descending = field.startswith("-")
             name = field[1:] if descending else field
-            if name == "pnl_r":
+            if name in {"pnl_r", "pnl_amount", "pnl_percent", "display_pnl_r"}:
                 expressions.append(F(name).desc(nulls_last=True) if descending else F(name).asc(nulls_last=True))
             else:
                 expressions.append(field)

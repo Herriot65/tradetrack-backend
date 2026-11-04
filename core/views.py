@@ -1,7 +1,7 @@
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.db import transaction, IntegrityError
-from django.db.models import ProtectedError
+from django.db.models import ProtectedError, Case, When, F, Value, FloatField, ExpressionWrapper
 from django.shortcuts import get_object_or_404
 from rest_framework import filters, generics, status, viewsets, serializers
 from rest_framework.parsers import MultiPartParser
@@ -158,6 +158,24 @@ class TradeCustomFieldListCreateView(CatalogListCreateView):
             raise serializers.ValidationError({"label": "A field with this name already exists in this section."})
 
 
+class TradeCustomFieldDeleteView(JournalScopedMixin, generics.DestroyAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = TradeCustomFieldSerializer
+
+    def get_queryset(self):
+        return TradeCustomField.objects.filter(journal=self.get_journal())
+
+    def perform_destroy(self, instance):
+        with transaction.atomic():
+            for trade in Trade.objects.select_for_update().filter(journal=instance.journal):
+                values = dict(trade.custom_fields or {})
+                if str(instance.pk) in values:
+                    del values[str(instance.pk)]
+                    trade.custom_fields = values
+                    trade.save(update_fields=["custom_fields"])
+            instance.delete()
+
+
 class TradeListCreateView(JournalScopedMixin, generics.ListCreateAPIView):
     serializer_class = TradeSerializer
     permission_classes = [IsAuthenticated]
@@ -165,12 +183,16 @@ class TradeListCreateView(JournalScopedMixin, generics.ListCreateAPIView):
     filter_backends = [JournalTradeFilterBackend, filters.SearchFilter, TradeOrderingFilter]
     filterset_class = TradeFilter
     search_fields = ["asset__symbol", "notes"]
-    ordering_fields = ["entry_datetime", "created_at", "pnl_r", "asset__symbol", "id"]
+    ordering_fields = ["entry_datetime", "created_at", "pnl_r", "pnl_amount", "pnl_percent", "display_pnl_r", "asset__symbol", "id"]
     ordering = ["-entry_datetime", "-id"]
 
     def get_queryset(self):
         return (
             Trade.objects.filter(journal=self.get_journal())
+            .annotate(
+                pnl_percent=Case(When(capital_basis__gt=0, then=ExpressionWrapper(F("pnl_amount") * Value(100.0) / F("capital_basis"), output_field=FloatField())), default=Value(None), output_field=FloatField()),
+                display_pnl_r=Case(When(risk_amount__gt=0, then=ExpressionWrapper(F("pnl_amount") * Value(1.0) / F("risk_amount"), output_field=FloatField())), When(pnl_amount__isnull=False, then=Value(None)), default=F("pnl_r"), output_field=FloatField()),
+            )
             .select_related("asset", "setup")
             .prefetch_related("emotions", "mistakes", "screenshots")
         )
@@ -244,7 +266,7 @@ class CareerView(_AnalyticsBase):
 
 def _parse_tz(request) -> tuple[ZoneInfo, str | None]:
     """Return (ZoneInfo, error_message). error_message is None on success."""
-    tz_name = request.query_params.get("tz", "UTC")
+    tz_name = request.query_params.get("tz", request.user.timezone or "UTC")
     try:
         return ZoneInfo(tz_name), None
     except (ZoneInfoNotFoundError, KeyError):

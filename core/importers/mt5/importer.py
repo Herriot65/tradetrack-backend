@@ -170,6 +170,7 @@ def _persist(
                 commission=row.get("commission"),
                 swap=row.get("swap"),
                 pnl_r=row.get("pnl_r"),
+                pnl_amount=row.get("raw_profit"),
                 notes=row.get("notes"),
                 # risk_percent intentionally null — not computable from MT5 HTML in Phase 1
             )

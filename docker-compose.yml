@@ -34,6 +34,23 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    develop:
+      watch:
+        # Backend code is copied into the image, so rebuild when it changes.
+        - action: rebuild
+          path: ./config
+        - action: rebuild
+          path: ./core
+        - action: rebuild
+          path: ./users
+        - action: rebuild
+          path: ./manage.py
+        - action: rebuild
+          path: ./requirements.txt
+        - action: rebuild
+          path: ./Dockerfile
+        - action: rebuild
+          path: ./entrypoint.sh
 
   frontend:
     build:
@@ -48,6 +65,26 @@ services:
       - "5173:80"
     depends_on:
       - backend
+    develop:
+      watch:
+        # The production-style frontend image contains a compiled Vite bundle,
+        # so source changes need an image rebuild before Nginx can serve them.
+        - action: rebuild
+          path: ../tradetrack-frontend/src
+        - action: rebuild
+          path: ../tradetrack-frontend/public
+        - action: rebuild
+          path: ../tradetrack-frontend/index.html
+        - action: rebuild
+          path: ../tradetrack-frontend/package.json
+        - action: rebuild
+          path: ../tradetrack-frontend/package-lock.json
+        - action: rebuild
+          path: ../tradetrack-frontend/vite.config.js
+        - action: rebuild
+          path: ../tradetrack-frontend/tailwind.config.js
+        - action: rebuild
+          path: ../tradetrack-frontend/postcss.config.js
 
 volumes:
   postgres_data:

@@ -47,6 +47,43 @@ def trade_payload(journal, **overrides):
 
 
 @pytest.mark.django_db
+def test_trade_basis_precision_and_display_preference(authenticated_client, journal):
+    journal.starting_capital = Decimal("10000")
+    journal.save()
+    url = f"/api/journals/{journal.pk}/"
+    created = authenticated_client.post(url+"trades/", trade_payload(journal, pnl_r="1.2345"), format="json")
+    assert created.status_code == 201
+    trade = Trade.objects.get(pk=created.data["id"])
+    assert (trade.capital_basis, trade.risk_amount, trade.pnl_amount) == (Decimal("10000"), Decimal("100"), Decimal("123.45"))
+    assert authenticated_client.patch(url, {"starting_capital":"20000", "display_unit":"USD"}, format="json").status_code == 200
+    trade.refresh_from_db()
+    assert (trade.capital_basis, trade.risk_amount, trade.pnl_amount) == (Decimal("10000"), Decimal("100"), Decimal("123.45"))
+    assert authenticated_client.get(url).data["display_unit"] == "USD"
+    assert authenticated_client.patch(url, {"display_unit":"invalid"}, format="json").status_code == 400
+    detail = url+f"trades/{trade.pk}/"
+    assert authenticated_client.patch(detail, {"notes":"Unchanged amounts"}, format="json").status_code == 200
+    trade.refresh_from_db()
+    assert trade.pnl_amount == Decimal("123.45")
+    assert authenticated_client.patch(detail, {"risk_percent":"2"}, format="json").status_code == 200
+    trade.refresh_from_db()
+    assert trade.risk_amount == Decimal("200")
+    assert trade.pnl_amount == Decimal("246.9")
+
+
+@pytest.mark.django_db
+def test_unit_sorting_uses_full_dataset_and_missing_values_last(authenticated_client, journal):
+    journal.starting_capital = Decimal("10000")
+    journal.save()
+    small = TradeFactory(journal=journal, pnl_r=Decimal("5"), risk_percent=Decimal("0.1"))
+    large = TradeFactory(journal=journal, pnl_r=Decimal("2"), risk_percent=Decimal("2"))
+    TradeFactory(journal=journal, pnl_r=None, risk_percent=None)
+    url = f"/api/journals/{journal.pk}/trades/"
+    assert authenticated_client.get(url,{"ordering":"-pnl_amount,-id"}).data["results"][0]["id"] == large.pk
+    assert authenticated_client.get(url,{"ordering":"-pnl_percent,-id"}).data["results"][0]["id"] == large.pk
+    assert authenticated_client.get(url,{"ordering":"-display_pnl_r,-id"}).data["results"][0]["id"] == small.pk
+
+
+@pytest.mark.django_db
 def test_create_trade_assigns_correct_journal(authenticated_client, user, journal):
     response = authenticated_client.post(
         f"/api/journals/{journal.id}/trades/", trade_payload(journal), format="json"
@@ -246,8 +283,8 @@ def test_reference_timeframe_and_score_round_trip(authenticated_client, journal)
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("score", [-1, 11, 5.5, "not a score"])
-def test_trade_score_rejects_values_outside_integer_scale(authenticated_client, journal, score):
+@pytest.mark.parametrize("score", [-1, 11, "not a score"])
+def test_trade_score_rejects_values_outside_scale(authenticated_client, journal, score):
     response = authenticated_client.post(
         f"/api/journals/{journal.id}/trades/", trade_payload(journal, trade_score=score), format="json",
     )
@@ -268,6 +305,15 @@ def test_trade_score_database_constraint(journal):
     from django.db import IntegrityError, transaction
     with pytest.raises(IntegrityError), transaction.atomic():
         TradeFactory(journal=journal, trade_score=11)
+
+
+@pytest.mark.django_db
+def test_decimal_trade_score_round_trip(authenticated_client, journal):
+    response = authenticated_client.post(f"/api/journals/{journal.pk}/trades/", trade_payload(journal, trade_score=7.25), format="json")
+    assert response.status_code == 201
+    trade = Trade.objects.get(pk=response.data["id"])
+    assert trade.trade_score == Decimal("7.25")
+    assert authenticated_client.get(f"/api/journals/{journal.pk}/trades/{trade.pk}/").data["trade_score"] == Decimal("7.25")
 
 
 @pytest.mark.django_db
@@ -371,3 +417,18 @@ def test_custom_field_definitions_validate_duplicates_and_options(authenticated_
     assert authenticated_client.post(url, {**payload, "section": "execution"}, format="json").status_code == 201
     for patch in [{"label":" "}, {"label":"Another", "options":[]}, {"label":"Another", "options":["A","A"]}, {"label":"Another", "section":"invalid"}]:
         assert authenticated_client.post(url, {**payload, **patch}, format="json").status_code == 400
+
+
+@pytest.mark.django_db
+def test_delete_custom_field_cleans_values_and_checks_ownership(authenticated_client, journal):
+    from core.models import TradeCustomField
+    field = TradeCustomField.objects.create(journal=journal, section="setup", label="Condition", field_type="text")
+    trade = TradeFactory(journal=journal, custom_fields={str(field.pk): "Trending", "999": "Keep"})
+    foreign = TradeCustomField.objects.create(journal=JournalFactory(), section="setup", label="Private", field_type="text")
+    url = f"/api/journals/{journal.pk}/custom-fields/"
+    assert authenticated_client.delete(f"{url}{foreign.pk}/").status_code == 404
+    assert authenticated_client.delete(f"{url}{field.pk}/").status_code == 204
+    trade.refresh_from_db()
+    assert trade.custom_fields == {"999": "Keep"}
+    assert not TradeCustomField.objects.filter(pk=field.pk).exists()
+    assert TradeCustomField.objects.filter(pk=foreign.pk).exists()

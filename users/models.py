@@ -23,6 +23,8 @@ class User(AbstractBaseUser, PermissionsMixin):
     email = models.EmailField(unique=True)
     first_name = models.CharField(max_length=50, blank=True)
     last_name = models.CharField(max_length=50, blank=True)
+    timezone = models.CharField(max_length=100, blank=True, default="")
+    rating_style = models.CharField(max_length=10, choices=[("score", "Score"), ("stars", "Stars")], default="score")
 
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)

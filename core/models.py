@@ -16,6 +16,7 @@ class Journal(models.Model):
     journal_type = models.CharField(max_length=20, choices=JOURNAL_TYPE_CHOICES, default="trading")
     starting_capital = models.DecimalField(max_digits=15, decimal_places=2, default=Decimal("0"))
     currency = models.CharField(max_length=10, default="USD")
+    display_unit = models.CharField(max_length=3, choices=[("R", "R"), ("USD", "$"), ("PCT", "%")], default="R")
     break_even_method = models.CharField(max_length=10, choices=BREAK_EVEN_METHOD_CHOICES, default="ratio")
     break_even_value = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     synthetic_data_enabled = models.BooleanField(default=False)
@@ -130,13 +131,16 @@ class Trade(models.Model):
     side = models.CharField(max_length=10, choices=Side.choices)
     entry_datetime = models.DateTimeField()
     exit_datetime = models.DateTimeField(null=True, blank=True)
-    risk_percent = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
-    pnl_r = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)
+    risk_percent = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    capital_basis = models.DecimalField(max_digits=20, decimal_places=6, null=True, blank=True)
+    risk_amount = models.DecimalField(max_digits=20, decimal_places=6, null=True, blank=True)
+    pnl_amount = models.DecimalField(max_digits=20, decimal_places=6, null=True, blank=True)
+    pnl_r = models.DecimalField(max_digits=14, decimal_places=6, null=True, blank=True)
     commission = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     swap = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
 
     reference_timeframe = models.CharField(max_length=10, null=True, blank=True)
-    trade_score = models.PositiveSmallIntegerField(null=True, blank=True, validators=[MinValueValidator(0), MaxValueValidator(10)])
+    trade_score = models.DecimalField(max_digits=4, decimal_places=2, null=True, blank=True, validators=[MinValueValidator(0), MaxValueValidator(10)])
     opportunity_timeframe = models.CharField(max_length=10, null=True, blank=True)
     entry_timeframe = models.CharField(max_length=10, null=True, blank=True)
     trend_direction = models.CharField(max_length=20, choices=TrendDirection.choices, null=True, blank=True)
@@ -154,6 +158,21 @@ class Trade(models.Model):
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    def save(self, *args, **kwargs):
+        if self._state.adding:
+            self.capital_basis = self.journal.starting_capital if self.journal.starting_capital > 0 else None
+        if self.capital_basis and self.risk_percent is not None:
+            self.risk_amount = (self.capital_basis * Decimal(str(self.risk_percent)) / 100).quantize(Decimal("0.000001"))
+        else:
+            self.risk_amount = None
+        if self.risk_amount and self.pnl_r is not None:
+            self.pnl_amount = (self.risk_amount * Decimal(str(self.pnl_r))).quantize(Decimal("0.000001"))
+        elif self.pnl_r is None and not self._state.adding:
+            self.pnl_amount = None
+        if kwargs.get("update_fields") and {"risk_percent", "pnl_r"}.intersection(kwargs["update_fields"]):
+            kwargs["update_fields"] = set(kwargs["update_fields"]) | {"risk_amount", "pnl_amount"}
+        super().save(*args, **kwargs)
 
     def clean(self) -> None:
         errors = {}

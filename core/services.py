@@ -432,7 +432,7 @@ def get_performance_by_hour(
 @transaction.atomic
 def recompute_imported_pnl(journal: Journal) -> int:
     """
-    Recompute pnl_r for every imported trade when starting_capital changes.
+    Recompute legacy imported trades that do not yet have a saved capital basis.
 
     Only trades with a TradeImport record and a non-null raw_profit are touched.
     Manually created trades are never modified.
@@ -448,6 +448,9 @@ def recompute_imported_pnl(journal: Journal) -> int:
 
     trades_to_update = []
     for ti in trade_imports:
+        # Snapshotted trades retain the basis and profit recorded at entry/import.
+        if ti.trade.capital_basis is not None:
+            continue
         if capital and capital > 0:
             new_pnl_r = (ti.raw_profit / capital * Decimal("100")).quantize(Decimal("0.01"))
         else:

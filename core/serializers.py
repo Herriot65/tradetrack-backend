@@ -16,6 +16,7 @@ class JournalSerializer(serializers.ModelSerializer):
             "journal_type",
             "starting_capital",
             "currency",
+            "display_unit",
             "break_even_method",
             "break_even_value",
             "synthetic_data_enabled",
@@ -117,6 +118,7 @@ class TradeCustomFieldSerializer(serializers.ModelSerializer):
 
 
 class TradeSerializer(serializers.ModelSerializer):
+    trade_score = serializers.DecimalField(max_digits=4, decimal_places=2, min_value=0, max_value=10, allow_null=True, required=False, coerce_to_string=False)
     effective_status = serializers.SerializerMethodField()
     # Read-only nested output
     asset = _AssetBriefSerializer(read_only=True)
@@ -151,6 +153,9 @@ class TradeSerializer(serializers.ModelSerializer):
             "entry_datetime",
             "exit_datetime",
             "risk_percent",
+            "capital_basis",
+            "risk_amount",
+            "pnl_amount",
             "pnl_r",
             "commission",
             "swap",
@@ -174,7 +179,7 @@ class TradeSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         )
-        read_only_fields = ("id", "created_at", "updated_at")
+        read_only_fields = ("id", "created_at", "updated_at", "capital_basis", "risk_amount", "pnl_amount")
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
