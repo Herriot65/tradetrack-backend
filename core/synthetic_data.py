@@ -141,7 +141,28 @@ def generate_synthetic_trades(journal, *, months=18, seed=None):
     today = timezone.localdate()
     start_day = today - timedelta(days=months * 30)
     end_day = today - timedelta(days=1)
-    created = 0
+    trades = []
+    emotion_links = []
+    mistake_links = []
+    capital_basis = (
+        journal.starting_capital
+        if journal.starting_capital and journal.starting_capital > 0
+        else None
+    )
+
+    def add_trade(**values):
+        trade = Trade(journal=journal, is_synthetic=True, **values)
+        trade.capital_basis = capital_basis
+        if capital_basis is not None and trade.risk_percent is not None:
+            trade.risk_amount = (
+                capital_basis * trade.risk_percent / Decimal("100")
+            ).quantize(Decimal("0.000001"))
+        if trade.risk_amount is not None and trade.pnl_r is not None:
+            trade.pnl_amount = (trade.risk_amount * trade.pnl_r).quantize(
+                Decimal("0.000001")
+            )
+        trades.append(trade)
+        return trade
 
     day = start_day
     while day <= end_day:
@@ -153,8 +174,7 @@ def generate_synthetic_trades(journal, *, months=18, seed=None):
                 holding_minutes = rng.choice([15, 30, 45, 60, 90, 120, 180, 240, 360])
                 exit_datetime = entry_datetime + timedelta(minutes=holding_minutes)
 
-                trade = Trade.objects.create(
-                    journal=journal,
+                trade = add_trade(
                     asset=rng.choice(assets),
                     side=rng.choice([Trade.Side.BUY, Trade.Side.SELL]),
                     entry_datetime=entry_datetime,
@@ -172,19 +192,22 @@ def generate_synthetic_trades(journal, *, months=18, seed=None):
                     setup=rng.choice(setups),
                     session=session,
                     notes=rng.choice(_NOTES),
-                    is_synthetic=True,
                 )
-                trade.emotions.set(rng.sample(emotions, rng.choice([0, 1, 1, 2, 3])))
+                emotion_links.extend(
+                    (trade, emotion)
+                    for emotion in rng.sample(emotions, rng.choice([0, 1, 1, 2, 3]))
+                )
                 if rng.random() < 0.30:
-                    trade.mistakes.set(rng.sample(mistakes, rng.choice([1, 1, 2])))
-                created += 1
+                    mistake_links.extend(
+                        (trade, mistake)
+                        for mistake in rng.sample(mistakes, rng.choice([1, 1, 2]))
+                    )
         day += timedelta(days=1)
 
     open_days = [end_day - timedelta(days=offset) for offset in range(1, 8)]
     for day in [d for d in open_days if d.weekday() < 5][:3]:
         entry_datetime, session = _entry_datetime(day, rng)
-        trade = Trade.objects.create(
-            journal=journal,
+        trade = add_trade(
             asset=rng.choice(assets),
             side=rng.choice([Trade.Side.BUY, Trade.Side.SELL]),
             entry_datetime=entry_datetime,
@@ -198,13 +221,26 @@ def generate_synthetic_trades(journal, *, months=18, seed=None):
             setup=rng.choice(setups),
             session=session,
             notes="Open position from sample data.",
-            is_synthetic=True,
         )
-        trade.emotions.set(rng.sample(emotions, rng.choice([0, 1, 2])))
-        created += 1
+        emotion_links.extend(
+            (trade, emotion)
+            for emotion in rng.sample(emotions, rng.choice([0, 1, 2]))
+        )
+
+    # Keep generation inside the existing transaction while reducing hundreds
+    # of per-row writes to a handful of bulk inserts on hosted databases.
+    Trade.objects.bulk_create(trades, batch_size=500)
+    TradeEmotion.objects.bulk_create(
+        [TradeEmotion(trade_id=trade.pk, emotion_id=emotion.pk) for trade, emotion in emotion_links],
+        batch_size=1000,
+    )
+    TradeMistake.objects.bulk_create(
+        [TradeMistake(trade_id=trade.pk, mistake_id=mistake.pk) for trade, mistake in mistake_links],
+        batch_size=1000,
+    )
 
     return {
-        "trades_created": created,
+        "trades_created": len(trades),
         "catalog_ids": {
             "assets": asset_ids,
             "setups": setup_ids,
