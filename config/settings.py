@@ -200,3 +200,6 @@ SIMPLE_JWT = {
 
     "AUTH_HEADER_TYPES": ("Bearer",),
 }
+
+# Google Identity Services web client ID (same value as VITE_GOOGLE_CLIENT_ID).
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")

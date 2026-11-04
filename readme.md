@@ -404,3 +404,22 @@ traderTrackAnalytics/
 ├── requirements.txt
 └── .env.example
 ```
+
+### Google sign-up and sign-in
+
+Create an OAuth 2.0 Web application client in Google Cloud and configure its
+consent screen and authorized JavaScript origins, including localhost and the
+production frontend origin. Set backend `GOOGLE_CLIENT_ID` and frontend
+`VITE_GOOGLE_CLIENT_ID` to the same client ID. No client secret is required.
+Run `python manage.py migrate` and rebuild the frontend after configuration.
+
+Both authentication screens show Continue with Google when configured.
+`POST /api/auth/google/` accepts `{ "credential": "<Google ID token>" }` and
+returns the existing access/refresh/user response. New users have no usable
+password. Returning users are identified by Google's stable subject. Existing
+Gmail and verified Workspace accounts can use their existing platform account;
+other existing email domains must use their password. Disabled accounts are
+rejected. Signatures, audience, issuer, expiry and verified email are checked.
+Allow backend HTTPS access to `www.googleapis.com` for signing keys and browser
+access to Google Identity Services. Test the live consent flow after deployment;
+unit tests use locally signed tokens and do not exercise Google's UI.
