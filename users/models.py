@@ -25,6 +25,11 @@ class User(AbstractBaseUser, PermissionsMixin):
     first_name = models.CharField(max_length=50, blank=True)
     last_name = models.CharField(max_length=50, blank=True)
     timezone = models.CharField(max_length=100, blank=True, default="")
+    theme = models.CharField(
+        max_length=6,
+        choices=[("light", "Light"), ("dark", "Dark"), ("system", "System")],
+        default="system",
+    )
     rating_style = models.CharField(max_length=10, choices=[("score", "Score"), ("stars", "Stars")], default="score")
 
     is_active = models.BooleanField(default=True)
