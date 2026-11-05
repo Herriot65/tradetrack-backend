@@ -423,3 +423,12 @@ rejected. Signatures, audience, issuer, expiry and verified email are checked.
 Allow backend HTTPS access to `www.googleapis.com` for signing keys and browser
 access to Google Identity Services. Test the live consent flow after deployment;
 unit tests use locally signed tokens and do not exercise Google's UI.
+
+### Theme preference
+
+Authenticated users can read their `theme` through `GET /api/auth/me/` and save it
+with `PATCH /api/auth/me/` using `{"theme": "light"}`, `{"theme": "dark"}`, or
+`{"theme": "system"}`. The default is `system`; unsupported values return HTTP 400.
+The preference is also returned at login. Migration `users.0004_user_theme` adds
+this account setting for existing users. Run `python manage.py migrate` before
+using the updated UI in the existing `../tradetrack-frontend` Compose service.
