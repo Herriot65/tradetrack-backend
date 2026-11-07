@@ -153,6 +153,7 @@ class Trade(models.Model):
     # null = auto-derive (pnl_r > 0 → WIN, < 0 → LOSS, == 0 → BE, no exit → OPEN)
     status = models.CharField(max_length=10, choices=Status.choices, null=True, blank=True)
     notes = models.TextField(null=True, blank=True)
+    notes_document = models.JSONField(default=dict, blank=True)
     is_synthetic = models.BooleanField(default=False, db_index=True)
     custom_fields = models.JSONField(default=dict, blank=True)
 
@@ -219,6 +220,7 @@ class TradeScreenshot(models.Model):
     trade = models.ForeignKey(Trade, on_delete=models.CASCADE, related_name="screenshots")
     image_url = models.URLField(max_length=2000)
     section = models.CharField(max_length=100, null=True, blank=True)
+    display_width = models.PositiveSmallIntegerField(default=100, validators=[MinValueValidator(25), MaxValueValidator(100)])
     uploaded_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

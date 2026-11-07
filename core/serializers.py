@@ -62,7 +62,7 @@ class SetupTagSerializer(serializers.ModelSerializer):
 class TradeScreenshotSerializer(serializers.ModelSerializer):
     class Meta:
         model = TradeScreenshot
-        fields = ("id", "image_url", "section", "uploaded_at")
+        fields = ("id", "image_url", "section", "display_width", "uploaded_at")
         read_only_fields = ("id", "image_url", "uploaded_at")
 
 
@@ -118,6 +118,10 @@ class TradeCustomFieldSerializer(serializers.ModelSerializer):
 
 
 class TradeSerializer(serializers.ModelSerializer):
+    def validate_notes_document(self, value):
+        from .note_documents import validate_notes_document
+        return validate_notes_document(value)
+
     trade_score = serializers.DecimalField(max_digits=4, decimal_places=2, min_value=0, max_value=10, allow_null=True, required=False, coerce_to_string=False)
     effective_status = serializers.SerializerMethodField()
     # Read-only nested output
@@ -173,6 +177,7 @@ class TradeSerializer(serializers.ModelSerializer):
             "mistake_ids",
             "status",
             "notes",
+            "notes_document",
             "custom_fields",
             "effective_status",
             "screenshots",

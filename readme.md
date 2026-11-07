@@ -432,3 +432,18 @@ with `PATCH /api/auth/me/` using `{"theme": "light"}`, `{"theme": "dark"}`, or
 The preference is also returned at login. Migration `users.0004_user_theme` adds
 this account setting for existing users. Run `python manage.py migrate` before
 using the updated UI in the existing `../tradetrack-frontend` Compose service.
+
+### Rich trade notes and image layout
+
+Migration `0015_rich_notes_and_image_size` adds `Trade.notes_document` (default
+empty object for legacy trades) and `TradeScreenshot.display_width` (default
+100, valid range 25–100). Run `python manage.py migrate` with this backend before
+releasing the rich-notes frontend. Existing plain text and image files are kept.
+
+The version-1 notes JSON contains `general` and `sections` documents. Allowed
+nodes/marks, depth, total node count and payload size are checked in
+`core/note_documents.py`. No arbitrary HTML is stored or required for rendering.
+The plain `notes` field remains available for search and older clients.
+Screenshot uploads accept `display_width`; authenticated PATCH requests to the
+existing screenshot detail URL update width and section metadata. Ownership
+checks follow the existing journal/trade scope. Trade calculations are unchanged.
