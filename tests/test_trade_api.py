@@ -432,3 +432,44 @@ def test_delete_custom_field_cleans_values_and_checks_ownership(authenticated_cl
     assert trade.custom_fields == {"999": "Keep"}
     assert not TradeCustomField.objects.filter(pk=field.pk).exists()
     assert TradeCustomField.objects.filter(pk=foreign.pk).exists()
+
+@pytest.mark.django_db
+def test_custom_setup_choices_round_trip(authenticated_client, journal):
+    url = f"/api/journals/{journal.pk}/trades/"
+    response = authenticated_client.post(url, trade_payload(journal,
+        reference_timeframe="M45", opportunity_timeframe="H2", entry_timeframe="M3",
+        trend_direction="Neutral", session="After hours"), format="json")
+    assert response.status_code == 201
+    detail = url + f"{response.data['id']}/"
+    saved = authenticated_client.get(detail).data
+    assert saved["reference_timeframe"] == "M45"
+    assert saved["trend_direction"] == "Neutral"
+    assert saved["session"] == "After hours"
+    assert authenticated_client.patch(detail, {"trend_direction": "x" * 21}, format="json").status_code == 400
+    assert authenticated_client.patch(detail, {"reference_timeframe": "x" * 11}, format="json").status_code == 400
+    # Existing enum values remain valid alongside custom descriptions.
+    assert authenticated_client.patch(detail, {"trend_direction": "BULLISH"}, format="json").status_code == 200
+
+@pytest.mark.django_db
+def test_rich_notes_and_image_width_round_trip(authenticated_client, journal):
+    from core.models import TradeScreenshot
+    doc = {"type": "doc", "content": [{"type": "heading", "attrs": {"level": 2}, "content": [{"type": "text", "text": "Plan"}]}, {"type": "paragraph", "content": [{"type": "text", "text": "Wait", "marks": [{"type": "textStyle", "attrs": {"color": "#ff0000"}}]}]}]}
+    document = {"version": 1, "general": doc, "sections": [{"id": "before", "title": "Before", "content": doc}]}
+    url = f"/api/journals/{journal.pk}/trades/"
+    response = authenticated_client.post(url, trade_payload(journal, notes="Plan\nWait", notes_document=document), format="json")
+    assert response.status_code == 201
+    detail = url + f"{response.data['id']}/"
+    assert authenticated_client.get(detail).data["notes_document"] == document
+    screenshot = TradeScreenshot.objects.create(trade_id=response.data['id'], image_url="https://example.test/chart.png")
+    image_url = detail + f"screenshots/{screenshot.pk}/"
+    assert authenticated_client.patch(image_url, {"display_width": 60}, format="json").status_code == 200
+    assert authenticated_client.get(detail).data["screenshots"][0]["display_width"] == 60
+    assert authenticated_client.patch(image_url, {"display_width": 101}, format="json").status_code == 400
+    assert authenticated_client.patch(image_url, {"display_width": 24}, format="json").status_code == 400
+    other = TradeFactory()
+    hidden = TradeScreenshot.objects.create(trade=other, image_url="https://example.test/private.png")
+    assert authenticated_client.patch(detail + f"screenshots/{hidden.pk}/", {"display_width": 50}, format="json").status_code == 404
+    for content in [{"type": "script"}, {"type": "paragraph", "content": [{"type": "text", "text": "x", "marks": [{"type": "textStyle", "attrs": {"color": "url(javascript:x)"}}]}]}]:
+        bad = {"version": 1, "general": {"type": "doc", "content": [content]}, "sections": []}
+        assert authenticated_client.patch(detail, {"notes_document": bad}, format="json").status_code == 400
+    assert authenticated_client.get(detail).data["notes_document"] == document
