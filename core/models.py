@@ -143,7 +143,7 @@ class Trade(models.Model):
     trade_score = models.DecimalField(max_digits=4, decimal_places=2, null=True, blank=True, validators=[MinValueValidator(0), MaxValueValidator(10)])
     opportunity_timeframe = models.CharField(max_length=10, null=True, blank=True)
     entry_timeframe = models.CharField(max_length=10, null=True, blank=True)
-    trend_direction = models.CharField(max_length=20, choices=TrendDirection.choices, null=True, blank=True)
+    trend_direction = models.CharField(max_length=20, null=True, blank=True)
     setup = models.ForeignKey(SetupTag, on_delete=models.PROTECT, null=True, blank=True, related_name="trades")
     session = models.CharField(max_length=50, null=True, blank=True)
 

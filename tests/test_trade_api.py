@@ -432,3 +432,20 @@ def test_delete_custom_field_cleans_values_and_checks_ownership(authenticated_cl
     assert trade.custom_fields == {"999": "Keep"}
     assert not TradeCustomField.objects.filter(pk=field.pk).exists()
     assert TradeCustomField.objects.filter(pk=foreign.pk).exists()
+
+@pytest.mark.django_db
+def test_custom_setup_choices_round_trip(authenticated_client, journal):
+    url = f"/api/journals/{journal.pk}/trades/"
+    response = authenticated_client.post(url, trade_payload(journal,
+        reference_timeframe="M45", opportunity_timeframe="H2", entry_timeframe="M3",
+        trend_direction="Neutral", session="After hours"), format="json")
+    assert response.status_code == 201
+    detail = url + f"{response.data['id']}/"
+    saved = authenticated_client.get(detail).data
+    assert saved["reference_timeframe"] == "M45"
+    assert saved["trend_direction"] == "Neutral"
+    assert saved["session"] == "After hours"
+    assert authenticated_client.patch(detail, {"trend_direction": "x" * 21}, format="json").status_code == 400
+    assert authenticated_client.patch(detail, {"reference_timeframe": "x" * 11}, format="json").status_code == 400
+    # Existing enum values remain valid alongside custom descriptions.
+    assert authenticated_client.patch(detail, {"trend_direction": "BULLISH"}, format="json").status_code == 200
