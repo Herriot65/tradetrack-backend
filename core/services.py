@@ -246,7 +246,7 @@ def _kpi_from_state(s: dict) -> dict:
         "avg_consecutive_losses":round(sum(ls) / len(ls), 2) if ls else 0.0,
         "avg_win_r":             _number(s["sum_win_r"] / wc) if wc else 0.0,
         "avg_loss_r":            _number(s["sum_loss_r"] / lc) if lc else 0.0,
-        "expectancy":            _number((s["sum_win_r"] + s["sum_loss_r"]) / cc) if cc else 0.0,
+        "expectancy":            _number(s["total_r"] / cc) if cc else 0.0,
         "max_drawdown":          _number(s["max_drawdown"]),
     }
 
@@ -293,7 +293,7 @@ def get_career_data(queryset: QuerySet[Trade], threshold: Decimal = Decimal("0")
         for row in queryset.values("entry_datetime__year").annotate(count=Count("id"))
     }
 
-    closed = _closed_trades(queryset).order_by("entry_datetime")
+    closed = _closed_trades(queryset).order_by("entry_datetime", "id")
 
     year_wins: dict[int, int] = defaultdict(int)
     heatmap: dict[int, dict[int, float]] = defaultdict(lambda: defaultdict(float))

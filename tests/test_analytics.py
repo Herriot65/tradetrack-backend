@@ -154,3 +154,17 @@ def test_career_data_structure(client, user, journal):
     assert 2025 in data["years"]
     assert data["yearSummaries"][0]["year"] == 2025
     assert data["yearSummaries"][0]["total_r"] == 1.0
+
+
+@pytest.mark.django_db
+def test_career_expectancy_includes_break_even_profit(journal):
+    from core.services import get_career_data, get_dashboard_summary
+    from core.models import Trade
+    for index, (pnl, status) in enumerate([("2", "WIN"), ("0.2", "BE"), ("-1", "LOSS")]):
+        TradeFactory(journal=journal, pnl_r=Decimal(pnl), status=status,
+                     entry_datetime=dt(f"2026-06-0{index + 1}T10:00:00Z"),
+                     exit_datetime=dt(f"2026-06-0{index + 1}T11:00:00Z"))
+    trades = Trade.objects.filter(journal=journal)
+    career = get_career_data(trades)
+    assert career["expectancy"] == get_dashboard_summary(trades)["average_r"] == 0.4
+    assert career["yearSummaries"][0]["expectancy"] == 0.4
