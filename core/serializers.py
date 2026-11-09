@@ -298,4 +298,4 @@ class AnalyticsTradeSerializer(TradeSerializer):
 
     class Meta(TradeSerializer.Meta):
         fields = tuple(field for field in TradeSerializer.Meta.fields
-                       if field not in {"notes", "custom_fields", "screenshots"}) + ("analytics_only",)
+                       if field not in {"notes", "notes_document", "custom_fields", "screenshots"}) + ("analytics_only",)

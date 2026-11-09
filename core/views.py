@@ -204,7 +204,7 @@ class TradeListCreateView(JournalScopedMixin, generics.ListCreateAPIView):
         )
 
         if self.request.method == "GET" and self.request.query_params.get("compact") == "1":
-            return queryset.defer("notes", "custom_fields")
+            return queryset.defer("notes", "notes_document", "custom_fields")
         return queryset.prefetch_related("screenshots")
 
     def get_serializer_context(self):
