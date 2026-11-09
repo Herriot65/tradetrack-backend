@@ -4,7 +4,7 @@ from django.db import transaction, IntegrityError
 from django.db.models import ProtectedError, Case, When, F, Value, FloatField, ExpressionWrapper
 from django.shortcuts import get_object_or_404
 from rest_framework import filters, generics, status, viewsets, serializers
-from rest_framework.parsers import MultiPartParser
+from rest_framework.parsers import MultiPartParser, JSONParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -379,7 +379,7 @@ class TradeScreenshotView(JournalScopedMixin, APIView):
     """
 
     permission_classes = [IsAuthenticated]
-    parser_classes = [MultiPartParser]
+    parser_classes = [MultiPartParser, JSONParser]
 
     def _get_trade(self, trade_id):
         return get_object_or_404(Trade, pk=trade_id, journal=self.get_journal())
@@ -397,6 +397,8 @@ class TradeScreenshotView(JournalScopedMixin, APIView):
         if not file_obj:
             return Response({"error": "No file provided. Send the image as 'file'."}, status=status.HTTP_400_BAD_REQUEST)
 
+        metadata = TradeScreenshotSerializer(data={"display_width": request.data.get("display_width", 100)})
+        metadata.is_valid(raise_exception=True)
         try:
             image_url = upload_screenshot(trade.pk, file_obj)
         except ValueError as exc:
@@ -405,8 +407,16 @@ class TradeScreenshotView(JournalScopedMixin, APIView):
             return Response({"error": f"Upload failed: {exc}"}, status=status.HTTP_502_BAD_GATEWAY)
 
         section = request.data.get("section") or None
-        screenshot = TradeScreenshot.objects.create(trade=trade, image_url=image_url, section=section)
+        screenshot = TradeScreenshot.objects.create(trade=trade, image_url=image_url, section=section, display_width=metadata.validated_data.get("display_width", 100))
         return Response(TradeScreenshotSerializer(screenshot).data, status=status.HTTP_201_CREATED)
+
+    def patch(self, request, journal_id, trade_id, pk):
+        trade = self._get_trade(trade_id)
+        screenshot = get_object_or_404(TradeScreenshot, pk=pk, trade=trade)
+        serializer = TradeScreenshotSerializer(screenshot, data={key: request.data[key] for key in ("display_width", "section") if key in request.data}, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
 
     def delete(self, request, journal_id, trade_id, pk):
         from .supabase_client import delete_screenshot
@@ -432,7 +442,7 @@ class MT5ImportView(JournalScopedMixin, APIView):
     """
 
     permission_classes = [IsAuthenticated]
-    parser_classes = [MultiPartParser]
+    parser_classes = [MultiPartParser, JSONParser]
 
     def post(self, request, journal_id):
         journal = self.get_journal()

@@ -91,3 +91,43 @@ def test_register_succeeds_and_user_has_no_journals():
     assert response.status_code == 201
     user = User.objects.get(email="j@example.com")
     assert not user.journals.exists()
+
+
+@pytest.mark.django_db
+def test_entry_configuration_scopes_persist_and_isolate_users():
+    user = User.objects.create_user(email="entry@example.com", password="testpass123")
+    other = User.objects.create_user(email="entry-other@example.com", password="testpass123")
+    current = Journal.objects.create(user=user, name="Current")
+    existing = Journal.objects.create(user=user, name="Existing")
+    foreign = Journal.objects.create(user=other, name="Foreign")
+    client = APIClient()
+    client.force_authenticate(user=user)
+
+    def save(journal, scope, fields):
+        response = client.patch("/api/auth/me/", {"entry_configuration_update": {
+            "journal_id": journal.id, "scope": scope, "fields": fields,
+        }}, format="json")
+        user.refresh_from_db()
+        return response
+
+    layout = {"risk_percent": {"label": "Position risk"}, "commission": {"visible": False}}
+    assert save(current, "journal", layout).status_code == 200
+    config = client.get("/api/auth/me/").data["entry_configuration"]
+    assert config["journals"][str(current.id)] == layout
+    assert "defaults" not in config
+    assert save(current, "future", layout).status_code == 200
+    config = client.get("/api/auth/me/").data["entry_configuration"]
+    assert config["defaults"] == layout
+    assert config["journals"][str(existing.id)] == {}
+    future = Journal.objects.create(user=user, name="Future")
+    assert config["journals"].get(str(future.id), config["defaults"]) == layout
+    assert save(current, "future", {"swap": {"visible": False}}).status_code == 200
+    config = client.get("/api/auth/me/").data["entry_configuration"]
+    assert config["journals"][str(future.id)] == layout
+    assert config["journals"][str(existing.id)] == {}
+    assert save(foreign, "journal", {}).status_code == 400
+    assert save(current, "journal", {"pnl_r": {"visible": False}}).status_code == 400
+    assert save(current, "journal", {"risk_percent": {"label": ""}}).status_code == 400
+    assert save(current, "journal", {"unknown": {"label": "Bad"}}).status_code == 400
+    other.refresh_from_db()
+    assert other.entry_configuration == {}

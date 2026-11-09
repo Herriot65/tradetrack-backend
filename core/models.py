@@ -143,7 +143,7 @@ class Trade(models.Model):
     trade_score = models.DecimalField(max_digits=4, decimal_places=2, null=True, blank=True, validators=[MinValueValidator(0), MaxValueValidator(10)])
     opportunity_timeframe = models.CharField(max_length=10, null=True, blank=True)
     entry_timeframe = models.CharField(max_length=10, null=True, blank=True)
-    trend_direction = models.CharField(max_length=20, choices=TrendDirection.choices, null=True, blank=True)
+    trend_direction = models.CharField(max_length=20, null=True, blank=True)
     setup = models.ForeignKey(SetupTag, on_delete=models.PROTECT, null=True, blank=True, related_name="trades")
     session = models.CharField(max_length=50, null=True, blank=True)
 
@@ -153,6 +153,7 @@ class Trade(models.Model):
     # null = auto-derive (pnl_r > 0 → WIN, < 0 → LOSS, == 0 → BE, no exit → OPEN)
     status = models.CharField(max_length=10, choices=Status.choices, null=True, blank=True)
     notes = models.TextField(null=True, blank=True)
+    notes_document = models.JSONField(default=dict, blank=True)
     is_synthetic = models.BooleanField(default=False, db_index=True)
     custom_fields = models.JSONField(default=dict, blank=True)
 
@@ -219,6 +220,7 @@ class TradeScreenshot(models.Model):
     trade = models.ForeignKey(Trade, on_delete=models.CASCADE, related_name="screenshots")
     image_url = models.URLField(max_length=2000)
     section = models.CharField(max_length=100, null=True, blank=True)
+    display_width = models.PositiveSmallIntegerField(default=100, validators=[MinValueValidator(25), MaxValueValidator(100)])
     uploaded_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
