@@ -1,6 +1,8 @@
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
+from .coach_api import CoachChatView, CoachTaskViewSet
+
 from .views import (
     AssetDetailView,
     AssetListCreateView,
@@ -31,6 +33,11 @@ router = DefaultRouter()
 router.register("journals", JournalViewSet, basename="journal")
 
 journal_nested = [
+    path("coach/chat/", CoachChatView.as_view(), name="coach-chat"),
+    path("coach/tasks/", CoachTaskViewSet.as_view({"get": "list", "post": "create"}), name="coach-tasks"),
+    path("coach/tasks/<int:pk>/", CoachTaskViewSet.as_view({"get": "retrieve", "patch": "partial_update", "delete": "destroy"}), name="coach-task"),
+    path("coach/tasks/<int:pk>/run/", CoachTaskViewSet.as_view({"post": "run"}), name="coach-task-run"),
+    path("coach/tasks/<int:pk>/history/", CoachTaskViewSet.as_view({"get": "history"}), name="coach-task-history"),
     path("custom-fields/", TradeCustomFieldListCreateView.as_view(), name="journal-custom-fields"),
     path("custom-fields/<int:pk>/", TradeCustomFieldDeleteView.as_view(), name="journal-custom-field-delete"),
     path("assets/", AssetListCreateView.as_view(), name="journal-assets"),

@@ -203,3 +203,7 @@ SIMPLE_JWT = {
 
 # Google Identity Services web client ID (same value as VITE_GOOGLE_CLIENT_ID).
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
+
+# AI credentials stay on the server. API billing is separate from ChatGPT.
+COACH_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+COACH_MODEL = os.environ.get("COACH_MODEL", "gpt-4.1-mini")

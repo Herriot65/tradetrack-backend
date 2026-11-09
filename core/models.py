@@ -268,3 +268,33 @@ class TradeImport(models.Model):
 
     def __str__(self) -> str:
         return f"{self.source}:{self.external_id}"
+
+
+class CoachTask(models.Model):
+    journal = models.ForeignKey(Journal, on_delete=models.CASCADE, related_name="coach_tasks")
+    title = models.CharField(max_length=100)
+    instructions = models.TextField(max_length=4000)
+    configuration = models.JSONField(default=dict)
+    frequency = models.CharField(max_length=10, choices=[(x, x.title()) for x in ("once", "daily", "weekly", "monthly")])
+    local_time = models.TimeField()
+    timezone = models.CharField(max_length=64, default="UTC")
+    start_date = models.DateField()
+    enabled = models.BooleanField(default=True)
+    next_run_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+
+class CoachTaskRun(models.Model):
+    task = models.ForeignKey(CoachTask, on_delete=models.CASCADE, related_name="runs")
+    status = models.CharField(max_length=10, default="running")
+    output = models.TextField(blank=True)
+    evidence = models.JSONField(default=list, blank=True)
+    error = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True)
+
+    class Meta:
+        ordering = ["-created_at"]
