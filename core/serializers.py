@@ -285,3 +285,12 @@ class TradeSerializer(serializers.ModelSerializer):
         if mistakes is not None:
             instance.mistakes.set(mistakes)
         return instance
+
+
+class AnalyticsTradeSerializer(TradeSerializer):
+    """Keep history reads small; fetch notes and attachments on opening a trade."""
+    analytics_only = serializers.BooleanField(default=True, read_only=True)
+
+    class Meta(TradeSerializer.Meta):
+        fields = tuple(field for field in TradeSerializer.Meta.fields
+                       if field not in {"notes", "custom_fields", "screenshots"}) + ("analytics_only",)

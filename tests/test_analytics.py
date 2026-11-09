@@ -168,3 +168,44 @@ def test_career_expectancy_includes_break_even_profit(journal):
     career = get_career_data(trades)
     assert career["expectancy"] == get_dashboard_summary(trades)["average_r"] == 0.4
     assert career["yearSummaries"][0]["expectancy"] == 0.4
+
+
+@pytest.mark.django_db
+def test_compact_history_reduces_requests_and_payload(client, journal):
+    import json
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+    from core.models import Trade
+    from tests.factories import AssetFactory
+
+    asset = AssetFactory(journal=journal)
+    trades = TradeFactory.build_batch(126, journal=journal, asset=asset, notes="Journal notes " * 1000)
+    Trade.objects.bulk_create(trades)
+    url = f"/api/journals/{journal.id}/trades/"
+    full = client.get(url, {"page_size": 1000})
+    with CaptureQueriesContext(connection) as queries:
+        compact = client.get(url, {"compact": "1", "page_size": 1000, "ordering": "entry_datetime,id"})
+    assert full.status_code == compact.status_code == 200
+    assert len(full.data["results"]) == 100
+    assert len(compact.data["results"]) == 126
+    assert compact.data["next"] is None
+    assert len(queries) <= 6  # Query count stays constant as trade count grows.
+    row = compact.data["results"][0]
+    assert row["analytics_only"] is True
+    assert {"notes", "screenshots", "custom_fields"}.isdisjoint(row)
+    full_row = next(item for item in full.data["results"] if item["id"] == row["id"]) if any(item["id"] == row["id"] for item in full.data["results"]) else client.get(f"{url}{row['id']}/").data
+    for key, value in row.items():
+        if key != "analytics_only":
+            assert full_row[key] == value
+    assert len(json.dumps(compact.data)) < len(json.dumps(full.data)) / 4
+    detail = client.get(f"{url}{row['id']}/")
+    assert detail.data["notes"] == "Journal notes " * 1000
+    assert "screenshots" in detail.data
+    assert client.get(url, {"compact": "1", "ordering": "-pnl_percent"}).status_code == 200
+
+
+@pytest.mark.django_db
+def test_compact_history_requires_journal_ownership(client):
+    other_journal = JournalFactory()
+    response = client.get(f"/api/journals/{other_journal.id}/trades/", {"compact": "1"})
+    assert response.status_code == 404

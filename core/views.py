@@ -11,7 +11,7 @@ from rest_framework.views import APIView
 
 from .filters import TradeFilter, JournalTradeFilterBackend, TradeOrderingFilter
 from .models import Asset, EmotionTag, Journal, MistakeTag, SetupTag, Trade, TradeScreenshot, TradeCustomField
-from .pagination import JournalPagination
+from .pagination import JournalPagination, TradePagination
 from .permissions import IsJournalOwner
 from .serializers import (
     AssetSerializer,
@@ -21,6 +21,7 @@ from .serializers import (
     SetupTagSerializer,
     TradeScreenshotSerializer,
     TradeSerializer,
+    AnalyticsTradeSerializer,
     TradeCustomFieldSerializer,
 )
 from .services import (
@@ -179,23 +180,32 @@ class TradeCustomFieldDeleteView(JournalScopedMixin, generics.DestroyAPIView):
 class TradeListCreateView(JournalScopedMixin, generics.ListCreateAPIView):
     serializer_class = TradeSerializer
     permission_classes = [IsAuthenticated]
-    pagination_class = JournalPagination
+    pagination_class = TradePagination
     filter_backends = [JournalTradeFilterBackend, filters.SearchFilter, TradeOrderingFilter]
     filterset_class = TradeFilter
     search_fields = ["asset__symbol", "notes"]
     ordering_fields = ["entry_datetime", "created_at", "pnl_r", "pnl_amount", "pnl_percent", "display_pnl_r", "asset__symbol", "id"]
     ordering = ["-entry_datetime", "-id"]
 
+    def get_serializer_class(self):
+        if self.request.method == "GET" and self.request.query_params.get("compact") == "1":
+            return AnalyticsTradeSerializer
+        return TradeSerializer
+
     def get_queryset(self):
-        return (
+        queryset = (
             Trade.objects.filter(journal=self.get_journal())
             .annotate(
                 pnl_percent=Case(When(capital_basis__gt=0, then=ExpressionWrapper(F("pnl_amount") * Value(100.0) / F("capital_basis"), output_field=FloatField())), default=Value(None), output_field=FloatField()),
                 display_pnl_r=Case(When(risk_amount__gt=0, then=ExpressionWrapper(F("pnl_amount") * Value(1.0) / F("risk_amount"), output_field=FloatField())), When(pnl_amount__isnull=False, then=Value(None)), default=F("pnl_r"), output_field=FloatField()),
             )
             .select_related("asset", "setup")
-            .prefetch_related("emotions", "mistakes", "screenshots")
+            .prefetch_related("emotions", "mistakes")
         )
+
+        if self.request.method == "GET" and self.request.query_params.get("compact") == "1":
+            return queryset.defer("notes", "custom_fields")
+        return queryset.prefetch_related("screenshots")
 
     def get_serializer_context(self):
         context = super().get_serializer_context()
