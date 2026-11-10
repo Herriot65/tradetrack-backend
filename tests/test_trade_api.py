@@ -473,3 +473,26 @@ def test_rich_notes_and_image_width_round_trip(authenticated_client, journal):
         bad = {"version": 1, "general": {"type": "doc", "content": [content]}, "sections": []}
         assert authenticated_client.patch(detail, {"notes_document": bad}, format="json").status_code == 400
     assert authenticated_client.get(detail).data["notes_document"] == document
+
+@pytest.mark.django_db
+def test_edit_dropdown_options_preserves_history_and_scopes_access(authenticated_client, journal):
+    from core.models import TradeCustomField
+    field = TradeCustomField.objects.create(journal=journal, section="setup", label="Condition", field_type="select", options=["Trending", "Ranging"])
+    trade = TradeFactory(journal=journal, custom_fields={str(field.pk): "Trending"})
+    url = f"/api/journals/{journal.pk}/custom-fields/{field.pk}/"
+    response = authenticated_client.patch(url, {"options": [" Sideways ", "Volatile"]}, format="json")
+    assert response.status_code == 200
+    assert response.data["options"] == ["Sideways", "Volatile"]
+    trade.refresh_from_db()
+    assert trade.custom_fields == {str(field.pk): "Trending"}
+    trade_url = f"/api/journals/{journal.pk}/trades/{trade.pk}/"
+    assert authenticated_client.patch(trade_url, {"custom_fields": trade.custom_fields}, format="json").status_code == 200
+    assert authenticated_client.post(f"/api/journals/{journal.pk}/trades/", trade_payload(journal, custom_fields={str(field.pk): "Trending"}), format="json").status_code == 400
+    for options in [["A", "a"], [" "], ["A" * 101], ["A"] * 101, None, "A"]:
+        assert authenticated_client.patch(url, {"options": options}, format="json").status_code == 400
+    assert authenticated_client.patch(url, {"options": []}, format="json").status_code == 200
+    foreign = TradeCustomField.objects.create(journal=JournalFactory(), section="setup", label="Private", field_type="select", options=["A"])
+    assert authenticated_client.patch(f"/api/journals/{journal.pk}/custom-fields/{foreign.pk}/", {"options": ["B"]}, format="json").status_code == 404
+    field.field_type = "boolean"
+    field.save()
+    assert authenticated_client.patch(url, {"options": ["Yes"]}, format="json").status_code == 400

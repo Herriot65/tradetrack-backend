@@ -219,7 +219,7 @@ class TradeSerializer(serializers.ModelSerializer):
                 (kind == "text" and isinstance(value, str) and len(value) <= 2000)
                 or (kind == "number" and type(value) in (int, float) and math.isfinite(value))
                 or (kind == "boolean" and isinstance(value, bool))
-                or (kind == "select" and isinstance(value, str) and value in definition.options)
+                or (kind == "select" and isinstance(value, str) and (value in definition.options or (self.instance is not None and (self.instance.custom_fields or {}).get(key) == value)))
             )
             if not valid:
                 errors[key] = f"Enter a valid value for {definition.label}."

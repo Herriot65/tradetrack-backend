@@ -166,6 +166,20 @@ class TradeCustomFieldDeleteView(JournalScopedMixin, generics.DestroyAPIView):
     def get_queryset(self):
         return TradeCustomField.objects.filter(journal=self.get_journal())
 
+    def patch(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if instance.field_type != "select":
+            raise serializers.ValidationError({"options": "Only dropdown options can be edited."})
+        options = request.data.get("options")
+        if not isinstance(options, list) or len(options) > 100 or any(not isinstance(option, str) or not option.strip() or len(option) > 100 for option in options):
+            raise serializers.ValidationError({"options": "Use up to 100 non-empty options, each at most 100 characters."})
+        options = [option.strip() for option in options]
+        if len({option.casefold() for option in options}) != len(options):
+            raise serializers.ValidationError({"options": "Each option must be unique."})
+        instance.options = options
+        instance.save(update_fields=["options"])
+        return Response(self.get_serializer(instance).data)
+
     def perform_destroy(self, instance):
         with transaction.atomic():
             for trade in Trade.objects.select_for_update().filter(journal=instance.journal):
