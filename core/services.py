@@ -57,24 +57,26 @@ def _auto_status(pnl: Decimal, threshold: Decimal) -> str:
     return "WIN" if pnl > 0 else ("LOSS" if pnl < 0 else "BE")
 
 
+def _status_filters(threshold: Decimal) -> dict[str, Q]:
+    threshold = max(threshold, Decimal("0"))
+    automatic = Q(status__isnull=True)
+    return {
+        "wins": Q(status="WIN") | (automatic & Q(pnl_r__gt=threshold)),
+        "losses": Q(status="LOSS") | (automatic & Q(pnl_r__lt=-threshold)),
+        "break_even": Q(status="BE") | (automatic & Q(pnl_r__gte=-threshold, pnl_r__lte=threshold)),
+    }
+
+
 def _effective_win(qs: QuerySet[Trade], threshold: Decimal = Decimal("0")) -> QuerySet[Trade]:
-    if threshold > 0:
-        return qs.filter(Q(status="WIN") | (Q(status__isnull=True) & Q(pnl_r__gt=threshold)))
-    return qs.filter(Q(status="WIN") | (Q(status__isnull=True) & Q(pnl_r__gt=0)))
+    return qs.filter(_status_filters(threshold)["wins"])
 
 
 def _effective_loss(qs: QuerySet[Trade], threshold: Decimal = Decimal("0")) -> QuerySet[Trade]:
-    if threshold > 0:
-        return qs.filter(Q(status="LOSS") | (Q(status__isnull=True) & Q(pnl_r__lt=-threshold)))
-    return qs.filter(Q(status="LOSS") | (Q(status__isnull=True) & Q(pnl_r__lt=0)))
+    return qs.filter(_status_filters(threshold)["losses"])
 
 
 def _effective_be(qs: QuerySet[Trade], threshold: Decimal = Decimal("0")) -> QuerySet[Trade]:
-    if threshold > 0:
-        return qs.filter(
-            Q(status="BE") | (Q(status__isnull=True) & Q(pnl_r__gte=-threshold) & Q(pnl_r__lte=threshold))
-        )
-    return qs.filter(Q(status="BE") | (Q(status__isnull=True) & Q(pnl_r=0)))
+    return qs.filter(_status_filters(threshold)["break_even"])
 
 
 def effective_trade_status(trade, journal=None):
@@ -113,7 +115,19 @@ def calculate_max_drawdown(trades: Iterable[Trade]) -> Decimal:
 def get_dashboard_summary(
     queryset: QuerySet[Trade], threshold: Decimal = Decimal("0")
 ) -> dict[str, float | int | None]:
-    total_trades = queryset.count()  # ALL trades — open and closed
+    # Aggregate in one round trip; preserve open-trade counts and manual statuses.
+    closed_filter = Q(exit_datetime__isnull=False, pnl_r__isnull=False)
+    classification = _status_filters(threshold)
+    aggregates = queryset.aggregate(
+        total_trades=Count("pk"),
+        closed_count=Count("pk", filter=closed_filter),
+        **{key: Count("pk", filter=closed_filter & condition)
+           for key, condition in classification.items()},
+        total_r=Sum("pnl_r", filter=closed_filter, default=Decimal("0")),
+        gross_profit=Sum("pnl_r", filter=closed_filter & classification["wins"], default=Decimal("0")),
+        gross_loss=Sum("pnl_r", filter=closed_filter & classification["losses"], default=Decimal("0")),
+    )
+    total_trades = aggregates["total_trades"]
 
     if total_trades == 0:
         return {
@@ -127,21 +141,17 @@ def get_dashboard_summary(
         }
 
     closed = _closed_trades(queryset)
-    closed_count = closed.count()
-    wins = _effective_win(closed, threshold).count()
-    losses = _effective_loss(closed, threshold).count()
-    break_even = _effective_be(closed, threshold).count()
-
-    aggregates = closed.aggregate(total_r=Coalesce(Sum("pnl_r"), Decimal("0")))
-    gross_profit = _effective_win(closed, threshold).aggregate(total=Coalesce(Sum("pnl_r"), Decimal("0")))["total"]
-    gross_loss = _effective_loss(closed, threshold).aggregate(total=Coalesce(Sum("pnl_r"), Decimal("0")))["total"]
+    closed_count = aggregates["closed_count"]
+    wins, losses, break_even = (aggregates[key] for key in ("wins", "losses", "break_even"))
+    gross_profit = aggregates["gross_profit"]
+    gross_loss = aggregates["gross_loss"]
 
     total_r = aggregates["total_r"]
     denominator = wins + losses + break_even
     win_rate = (wins / denominator * 100) if denominator else 0
     average_r = (total_r / closed_count) if closed_count else Decimal("0")  # closed trades only
     profit_factor = None if gross_loss == 0 else abs(gross_profit / gross_loss)
-    ordered_trades = closed.order_by("entry_datetime", "id")
+    ordered_trades = closed.order_by("entry_datetime", "id").only("pnl_r").iterator()
 
     return {
         "has_data": True,
@@ -167,9 +177,9 @@ def get_equity_curve(queryset: QuerySet[Trade], period: Period = "weekly") -> li
     cumulative_by_period: dict[date, Decimal] = {}
     cumulative = Decimal("0")
 
-    for trade in closed:
-        cumulative += trade.pnl_r or Decimal("0")
-        bucket = _period_start(trade.entry_datetime.date(), period)
+    for entered_at, pnl in closed.values_list("entry_datetime", "pnl_r").iterator():
+        cumulative += pnl or Decimal("0")
+        bucket = _period_start(entered_at.date(), period)
         cumulative_by_period[bucket] = cumulative
 
     return [
@@ -182,15 +192,11 @@ def get_win_loss_distribution(
     queryset: QuerySet[Trade], threshold: Decimal = Decimal("0")
 ) -> dict[str, int]:
     closed = _closed_trades(queryset)
-    wins = _effective_win(closed, threshold).count()
-    losses = _effective_loss(closed, threshold).count()
-    break_even = _effective_be(closed, threshold).count()
-    return {
-        "has_data": wins + losses + break_even > 0,
-        "wins": wins,
-        "losses": losses,
-        "break_even": break_even,
-    }
+    counts = closed.aggregate(**{
+        key: Count("pk", filter=condition)
+        for key, condition in _status_filters(threshold).items()
+    })
+    return {"has_data": sum(counts.values()) > 0, **counts}
 
 
 def get_pnl_by_setup(queryset: QuerySet[Trade]) -> list[dict[str, str | float]]:
@@ -302,7 +308,7 @@ def get_career_data(queryset: QuerySet[Trade], threshold: Decimal = Decimal("0")
     global_state = _empty_kpi_state()
     year_states: dict[int, dict] = defaultdict(_empty_kpi_state)
 
-    for trade in closed.values("entry_datetime", "pnl_r", "status"):
+    for trade in closed.values("entry_datetime", "pnl_r", "status").iterator():
         year = trade["entry_datetime"].year
         month = trade["entry_datetime"].month - 1  # 0-indexed for frontend
         pnl = trade["pnl_r"] or Decimal("0")
@@ -367,7 +373,7 @@ def get_performance_by_day(
         for i in range(7)
     }
 
-    for trade in closed.values("entry_datetime", "pnl_r", "status"):
+    for trade in closed.values("entry_datetime", "pnl_r", "status").iterator():
         day = trade["entry_datetime"].astimezone(tz).weekday()  # 0=Mon, 6=Sun
         pnl = trade["pnl_r"] or Decimal("0")
         groups[day]["trade_count"] += 1
@@ -404,7 +410,7 @@ def get_performance_by_hour(
         lambda: {"trade_count": 0, "win_count": 0, "total_r": Decimal("0")}
     )
 
-    for trade in closed.values("entry_datetime", "pnl_r", "status"):
+    for trade in closed.values("entry_datetime", "pnl_r", "status").iterator():
         hour = trade["entry_datetime"].astimezone(tz).hour
         pnl = trade["pnl_r"] or Decimal("0")
         groups[hour]["trade_count"] += 1

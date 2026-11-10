@@ -62,6 +62,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
+    "core.middleware.ResponseTimingMiddleware",
     'django.middleware.security.SecurityMiddleware',
     "whitenoise.middleware.WhiteNoiseMiddleware",
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -99,7 +100,7 @@ import dj_database_url
 
 _DATABASE_URL = os.environ.get("DATABASE_URL")
 if _DATABASE_URL:
-    DATABASES = {"default": dj_database_url.parse(_DATABASE_URL, conn_max_age=600)}
+    DATABASES = {"default": dj_database_url.parse(_DATABASE_URL, conn_max_age=600, conn_health_checks=True)}
 else:
     DATABASES = {
         "default": {
@@ -111,6 +112,16 @@ else:
             "PORT": os.environ.get("POSTGRES_PORT"),
         }
     }
+
+# Reuse database connections in both deployment configuration styles. Opening
+# a remote PostgreSQL/TLS connection for every request adds avoidable latency.
+DATABASES["default"]["CONN_MAX_AGE"] = int(os.environ.get("DB_CONN_MAX_AGE", "600"))
+DATABASES["default"]["CONN_HEALTH_CHECKS"] = True
+# Iterators still avoid Django's result cache without named cursors. Default to
+# compatibility with transaction poolers; direct connections can opt into them.
+DATABASES["default"]["DISABLE_SERVER_SIDE_CURSORS"] = os.environ.get(
+    "DB_DISABLE_SERVER_SIDE_CURSORS", "True"
+) == "True"
 
 
 # Password validation
