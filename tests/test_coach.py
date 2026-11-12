@@ -229,3 +229,43 @@ def test_moved_screenshot_uses_current_note_section(journal, settings):
     execute, _, images = tools_for(journal, {"period": "week", "screenshots": True})
     execute("get_screenshots", {"trade_id": trade.pk})
     assert images[0]["section"] == "After entry"
+
+
+@pytest.mark.django_db
+def test_selected_scope_filters_trades_statistics_and_screenshots(journal):
+    journal.break_even_value = Decimal("0.5")
+    journal.save()
+    loss = TradeFactory(journal=journal, pnl_r=Decimal("-1"), risk_percent=Decimal("2"))
+    TradeFactory(journal=journal, pnl_r=Decimal("2"))
+    TradeFactory(journal=journal, pnl_r=Decimal("0.25"))
+    TradeFactory(journal=journal, exit_datetime=None, pnl_r=None)
+    execute, _, _ = tools_for(journal, {"period": "week", "trade_status": "LOSS", "screenshots": True})
+    rows = execute("get_trades", {})["trades"]
+    assert [row["id"] for row in rows] == [loss.pk]
+    assert rows[0]["risk_percent"] == Decimal("2")
+    assert rows[0]["risk_amount"] == loss.risk_amount
+    stats = execute("get_statistics", {})["statistics"]
+    assert stats["total_trades"] == 1 and stats["total_r"] == -1
+    execute, _, _ = tools_for(journal, {"period": "week", "trade_status": "closed"})
+    assert len(execute("get_trades", {})["trades"]) == 3
+    execute, _, _ = tools_for(journal, {"period": "week", "trade_status": "BE"})
+    assert len(execute("get_trades", {})["trades"]) == 1
+
+
+@pytest.mark.django_db
+def test_chat_rejects_unknown_trade_scope(client, journal):
+    response = client.post(url(journal, "chat/"), {"instructions": "Check risk", "configuration": {"trade_status": "EVERYONE"}}, format="json")
+    assert response.status_code == 400
+
+
+@pytest.mark.django_db
+def test_reading_and_task_management_do_not_use_generation_allowance(client, journal):
+    for _ in range(35):
+        assert client.get(url(journal, "chat/")).status_code == 200
+    for _ in range(3):
+        assert client.get(url(journal, "tasks/")).status_code == 200
+    with patch("core.coach_api.generate_reply", return_value={"output": "What is your plan?", "evidence": []}):
+        for _ in range(30):
+            assert client.post(url(journal, "chat/"), {"instructions": "Prepare my session"}, format="json").status_code == 200
+        assert client.post(url(journal, "chat/"), {"instructions": "One more"}, format="json").status_code == 429
+    assert client.get(url(journal, "tasks/")).status_code == 200

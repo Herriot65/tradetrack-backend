@@ -10,7 +10,7 @@ from django.conf import settings
 from django.core.serializers.json import DjangoJSONEncoder
 from django.utils import timezone
 
-from .services import be_threshold_r, effective_trade_status, get_dashboard_summary
+from .services import be_threshold_r, effective_trade_status, filter_trade_status, get_dashboard_summary
 
 logger = logging.getLogger(__name__)
 SECTIONS = ("statistics", "strengths", "mistakes", "goals", "actions")
@@ -81,6 +81,11 @@ def tools_for(journal, config, now=None):
         trades = trades.filter(asset__symbol__iexact=config["instrument"])
     if config.get("trade_id"):
         trades = trades.filter(pk=config["trade_id"])
+    scope = config.get("trade_status", "all")
+    if scope == "closed":
+        trades = trades.filter(exit_datetime__isnull=False, pnl_r__isnull=False)
+    elif scope in {"WIN", "LOSS", "BE", "OPEN"}:
+        trades = filter_trade_status(trades, scope, journal)
     evidence = {}
     images = []
 
@@ -95,7 +100,7 @@ def tools_for(journal, config, now=None):
             rows = []
             for trade in trades.select_related("asset", "setup").prefetch_related("emotions", "mistakes").order_by("-entry_datetime", "-id")[offset:offset + 30]:
                 evidence[trade.pk] = {"id": trade.pk, "symbol": trade.asset.symbol, "date": trade.entry_datetime.isoformat()}
-                rows.append({"id": trade.pk, "symbol": trade.asset.symbol, "side": trade.side, "entry": trade.entry_datetime, "exit": trade.exit_datetime, "pnl_r": trade.pnl_r, "pnl_amount": trade.pnl_amount, "setup": trade.setup.label if trade.setup else None, "notes": trade_notes(trade), "effective_status": effective_trade_status(trade, journal), "session": trade.session, "trend": trade.trend_direction, "reference_timeframe": trade.reference_timeframe, "entry_timeframe": trade.entry_timeframe, "emotions": [tag.label for tag in trade.emotions.all()], "mistakes": [tag.label for tag in trade.mistakes.all()], "score": trade.trade_score})
+                rows.append({"id": trade.pk, "symbol": trade.asset.symbol, "side": trade.side, "entry": trade.entry_datetime, "exit": trade.exit_datetime, "pnl_r": trade.pnl_r, "pnl_amount": trade.pnl_amount, "risk_percent": trade.risk_percent, "risk_amount": trade.risk_amount, "capital_basis": trade.capital_basis, "setup": trade.setup.label if trade.setup else None, "notes": trade_notes(trade), "effective_status": effective_trade_status(trade, journal), "session": trade.session, "trend": trade.trend_direction, "reference_timeframe": trade.reference_timeframe, "entry_timeframe": trade.entry_timeframe, "emotions": [tag.label for tag in trade.emotions.all()], "mistakes": [tag.label for tag in trade.mistakes.all()], "score": trade.trade_score})
             return {"trades": rows, "offset": offset, "total": trades.count(), "next_offset": offset + len(rows) if len(rows) == 30 else None}
         if name == "get_screenshots" and config.get("screenshots"):
             trade_id = arguments.get("trade_id")

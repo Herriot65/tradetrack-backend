@@ -86,8 +86,9 @@ minutes marks it failed. This favors avoiding duplicate paid requests over
 transparent retries. On a subsequent scheduled occurrence the task runs again.
 SQLite is suitable for local development, not concurrent production scheduling.
 
-Chat and task endpoints are limited to 30 requests/hour/user using DRF's cache
-throttle; each journal can hold 20 tasks. Use a shared Django cache for consistent
+AI generation (chat POST and Run now) is limited to 30 requests/hour/user using DRF's cache
+throttle; connection checks and task management do not consume that allowance.
+Each journal can hold 20 tasks. Use a shared Django cache for consistent
 limits across web processes. These are guardrails, not a monthly spending cap.
 Set provider budget alerts/limits before enabling broad paid usage.
 
@@ -115,3 +116,37 @@ Frontend `npm run test:coach` exercises the actual page with mocked API replies;
 it never makes paid AI calls. Supply `PLAYWRIGHT_MODULE` when Playwright is
 installed outside the frontend package. Live model quality, billing, provider
 image access and production cron wiring require validation after setup.
+
+## Trader experience
+
+The coach starts with six editable prompts: weekly review, session preparation,
+loss analysis, risk discipline, reflection, and goal progress. Shortcuts prepare a
+question for the trader to review before sending; they do not run paid requests
+on click. Today, 7-day, 30-day, and custom periods are visible above the chat.
+
+`configuration.trade_status` accepts `all`, `closed`, `WIN`, `LOSS`, `BE`, or
+`OPEN`. The same server-side filter applies to trade evidence, existing
+statistics, and screenshots. Status classification uses the journal's existing
+break-even rules. Recorded risk percentage, risk amount, and capital basis are
+available to the read-only agent for discipline questions.
+
+The trade picker searches only the selected journal. Picking a trade clears
+conflicting filters and uses its entry date in the account timezone; clearing
+the selection restores the previous scope. Supporting trade citations open the
+existing read-only rich-note and screenshot viewer.
+
+Answers can be copied, simplified with an editable follow-up, or turned into a
+next-step question. Conversations can be downloaded as plain text. They are not
+stored in browser storage or in the database; a new-chat confirmation helps avoid
+accidental loss. Downloaded files contain personal journal information.
+
+A failed request keeps the question for retry. Stop waiting abandons the browser
+request and preserves the draft; it cannot guarantee cancellation of a request
+already executing at the provider, and the UI states that clearly.
+
+Task templates cover session preparation, end-of-day reflection, weekly
+discipline, and a full monthly report. Instructions remain editable. A schedule
+preview shows the weekday or month-day, time, and timezone. Data/output settings
+are collapsed by default. Run now opens its result immediately; task history
+still provides saved results. Provider setup details are kept out of the trader
+flow; administrators should follow the Enable section above.
