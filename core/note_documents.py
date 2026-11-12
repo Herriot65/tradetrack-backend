@@ -1,5 +1,6 @@
 """Validate the small, non-HTML document format used by trade notes."""
 import json
+import math
 import re
 from rest_framework import serializers
 
@@ -61,4 +62,28 @@ def validate_notes_document(value):
             invalid()
         ids.add(section["id"])
         document(section.get("content"))
+        image_notes = section.get("image_notes", {})
+        if not isinstance(image_notes, dict) or len(image_notes) > 200:
+            invalid()
+        for image_id, content in image_notes.items():
+            if not isinstance(image_id, str) or not 1 <= len(image_id) <= 100:
+                invalid()
+            document(content)
+        details = section.get("image_details", {})
+        if not isinstance(details, dict) or len(details) > 200:
+            invalid()
+        for image_id, detail in details.items():
+            if not isinstance(image_id, str) or not 1 <= len(image_id) <= 100 or not isinstance(detail, dict):
+                invalid()
+            caption = detail.get("caption", "")
+            annotations = detail.get("annotations", [])
+            if not isinstance(caption, str) or len(caption) > 300 or not isinstance(annotations, list) or len(annotations) > 100:
+                invalid()
+            for annotation in annotations:
+                if not isinstance(annotation, dict) or annotation.get("type") not in ("arrow", "highlight") or not re.fullmatch(r"#[0-9a-fA-F]{6}", str(annotation.get("color", ""))):
+                    invalid()
+                for coordinate in ("x1", "y1", "x2", "y2"):
+                    number = annotation.get(coordinate)
+                    if type(number) not in (int, float) or not math.isfinite(number) or not 0 <= number <= 100:
+                        invalid()
     return value

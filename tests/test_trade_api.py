@@ -496,3 +496,41 @@ def test_edit_dropdown_options_preserves_history_and_scopes_access(authenticated
     field.field_type = "boolean"
     field.save()
     assert authenticated_client.patch(url, {"options": ["Yes"]}, format="json").status_code == 400
+
+@pytest.mark.django_db
+def test_text_after_images_round_trips_and_validates_documents(authenticated_client, journal):
+    import copy
+    from core.models import TradeScreenshot
+    empty = {"type": "doc", "content": [{"type": "paragraph"}]}
+    note = {"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Price rejected the level.", "marks": [{"type": "bold"}]}]}]}
+    trade = TradeFactory(journal=journal)
+    image = TradeScreenshot.objects.create(trade=trade, image_url="https://example.test/chart.png")
+    document = {"version": 1, "general": empty, "sections": [{"id": "before", "title": "Before", "content": empty, "image_layout": [[str(image.pk)]], "image_notes": {str(image.pk): note}}]}
+    url = f"/api/journals/{journal.pk}/trades/{trade.pk}/"
+    response = authenticated_client.patch(url, {"notes_document": document}, format="json")
+    assert response.status_code == 200
+    assert authenticated_client.get(url).data["notes_document"] == document
+    for invalid in [[], {"": note}, {"1": {"type": "script"}}, {"1": {"type": "doc", "content": [{"type": "text", "text": "bad", "marks": [{"type": "textStyle", "attrs": {"color": "url(javascript:x)"}}]}]}}]:
+        bad = copy.deepcopy(document)
+        bad["sections"][0]["image_notes"] = invalid
+        assert authenticated_client.patch(url, {"notes_document": bad}, format="json").status_code == 400
+    assert authenticated_client.get(url).data["notes_document"] == document
+
+@pytest.mark.django_db
+def test_image_annotations_validate_and_round_trip(authenticated_client, journal):
+    import copy
+    empty = {"type": "doc", "content": [{"type": "paragraph"}]}
+    arrow = {"type": "arrow", "color": "#facc15", "x1": 10, "y1": 20, "x2": 70, "y2": 80}
+    document = {"version": 1, "general": empty, "sections": [{"id": "before", "title": "Before", "content": empty, "image_details": {"1": {"caption": "Rejection", "annotations": [arrow]}}}]}
+    trade = TradeFactory(journal=journal)
+    url = f"/api/journals/{journal.pk}/trades/{trade.pk}/"
+    assert authenticated_client.patch(url, {"notes_document": document}, format="json").status_code == 200
+    assert authenticated_client.get(url).data["notes_document"] == document
+    for change in [{"type": "script"}, {"color": "url(javascript:x)"}, {"x1": -1}, {"x2": 101}, {"y2": True}, {"y1": "20"}]:
+        bad = copy.deepcopy(document)
+        bad["sections"][0]["image_details"]["1"]["annotations"] = [{**arrow, **change}]
+        assert authenticated_client.patch(url, {"notes_document": bad}, format="json").status_code == 400
+    bad = copy.deepcopy(document)
+    bad["sections"][0]["image_details"]["1"]["caption"] = "a" * 301
+    assert authenticated_client.patch(url, {"notes_document": bad}, format="json").status_code == 400
+    assert authenticated_client.get(url).data["notes_document"] == document
