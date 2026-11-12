@@ -49,38 +49,8 @@ services:
           name: tradetrack-backend
           type: web
           envVarKey: GOOGLE_CLIENT_ID
-      - key: OPENAI_API_KEY
-        fromService:
-          name: tradetrack-backend
-          type: web
-          envVarKey: OPENAI_API_KEY
-      - key: COACH_MODEL
-        fromService:
-          name: tradetrack-backend
-          type: web
-          envVarKey: COACH_MODEL
       - key: CORS_ALLOWED_ORIGINS
         fromService:
           name: tradetrack-backend
           type: web
           envVarKey: CORS_ALLOWED_ORIGINS
-      - key: CORS_ALLOWED_ORIGIN_REGEXES
-        fromService:
-          name: tradetrack-backend
-          type: web
-          envVarKey: CORS_ALLOWED_ORIGIN_REGEXES
-      - key: DB_CONN_MAX_AGE
-        fromService:
-          name: tradetrack-backend
-          type: web
-          envVarKey: DB_CONN_MAX_AGE
-      - key: DB_DISABLE_SERVER_SIDE_CURSORS
-        fromService:
-          name: tradetrack-backend
-          type: web
-          envVarKey: DB_DISABLE_SERVER_SIDE_CURSORS
-      - key: PYTHON_VERSION
-        fromService:
-          name: tradetrack-backend
-          type: web
-          envVarKey: PYTHON_VERSION
