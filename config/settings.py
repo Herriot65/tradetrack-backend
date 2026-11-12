@@ -143,6 +143,20 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 AUTH_USER_MODEL = "users.User"
+AUTHENTICATION_BACKENDS = ["users.authentication.TimedModelBackend"]
+
+# New hashes use Argon2id. Retain Django's supported legacy algorithms so
+# existing passwords verify and upgrade on the next successful sign-in.
+PASSWORD_HASHERS = [
+    "users.hashers.ApplicationArgon2PasswordHasher",
+    "django.contrib.auth.hashers.PBKDF2PasswordHasher",
+    "django.contrib.auth.hashers.PBKDF2SHA1PasswordHasher",
+    "django.contrib.auth.hashers.BCryptSHA256PasswordHasher",
+    "django.contrib.auth.hashers.ScryptPasswordHasher",
+]
+
+# Allow browser diagnostics to read timing metadata across the frontend origin.
+CORS_EXPOSE_HEADERS = ["Server-Timing"]
 
 CORS_ALLOWED_ORIGINS = [
     o.strip()

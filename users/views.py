@@ -5,6 +5,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
 
 from .serializers import RegisterSerializer, UserSerializer
+from .authentication import auth_phase, attach_auth_timings
 
 from rest_framework.views import APIView
 from django.contrib.auth import authenticate
@@ -27,18 +28,19 @@ class LoginView(APIView):
         user = authenticate(request, email=email, password=password)
 
         if user is None:
-            return Response(
+            return attach_auth_timings(request, Response(
                 {"detail": "Invalid credentials"},
                 status=status.HTTP_401_UNAUTHORIZED
-            )
+            ))
 
-        refresh = RefreshToken.for_user(user)
-
-        return Response({
-            "access": str(refresh.access_token),
-            "refresh": str(refresh),
-            "user": UserSerializer(user).data
-        })
+        with auth_phase(request, "session"):
+            refresh = RefreshToken.for_user(user)
+            payload = {
+                "access": str(refresh.access_token),
+                "refresh": str(refresh),
+                "user": UserSerializer(user).data,
+            }
+        return attach_auth_timings(request, Response(payload))
 
 class MeView(APIView):
     permission_classes = [IsAuthenticated]
