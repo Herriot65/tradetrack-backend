@@ -1,0 +1,56 @@
+# Frankfurt replacement only. The existing Ohio service is not managed here.
+# Secrets are copied by Render; no secret values belong in this repository.
+previews:
+  generation: off
+services:
+  - type: web
+    name: tradetrack-backend-frankfurt
+    runtime: python
+    repo: https://github.com/Herriot65/tradetrack-backend
+    branch: main
+    region: frankfurt
+    plan: free
+    numInstances: 1
+    autoDeployTrigger: commit
+    buildCommand: pip install -r requirements.txt && python manage.py collectstatic --noinput && python manage.py migrate
+    startCommand: gunicorn config.wsgi:application --bind 0.0.0.0:$PORT
+    envVars:
+      - key: DEBUG
+        value: "False"
+      - key: ALLOWED_HOSTS
+        value: ".onrender.com"
+      - key: DATABASE_URL
+        fromService:
+          name: tradetrack-backend
+          type: web
+          envVarKey: DATABASE_URL
+      - key: DJANGO_SECRET_KEY
+        fromService:
+          name: tradetrack-backend
+          type: web
+          envVarKey: DJANGO_SECRET_KEY
+      - key: SUPABASE_URL
+        fromService:
+          name: tradetrack-backend
+          type: web
+          envVarKey: SUPABASE_URL
+      - key: SUPABASE_ANON_KEY
+        fromService:
+          name: tradetrack-backend
+          type: web
+          envVarKey: SUPABASE_ANON_KEY
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        fromService:
+          name: tradetrack-backend
+          type: web
+          envVarKey: SUPABASE_SERVICE_ROLE_KEY
+      - key: GOOGLE_CLIENT_ID
+        fromService:
+          name: tradetrack-backend
+          type: web
+          envVarKey: GOOGLE_CLIENT_ID
+      - key: CORS_ALLOWED_ORIGINS
+        fromService:
+          name: tradetrack-backend
+          type: web
+          envVarKey: CORS_ALLOWED_ORIGINS
