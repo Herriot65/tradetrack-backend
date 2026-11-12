@@ -28,6 +28,7 @@ class ConfigurationSerializer(serializers.Serializer):
     sections = serializers.ListField(child=serializers.ChoiceField(choices=SECTIONS), max_length=5, default=list)
     goal = serializers.CharField(max_length=1000, allow_blank=True, default="")
     instrument = serializers.CharField(max_length=50, allow_blank=True, default="")
+    trade_status = serializers.ChoiceField(choices=["all", "closed", "WIN", "LOSS", "BE", "OPEN"], default="all")
     trade_id = serializers.IntegerField(min_value=1, required=False)
     screenshots = serializers.BooleanField(default=False)
     start_date = serializers.DateField(required=False)
@@ -66,6 +67,10 @@ class ChatSerializer(serializers.Serializer):
 
 class CoachChatView(APIView):
     throttle_classes = [CoachThrottle]
+
+    def get_throttles(self):
+        # Connection checks do not consume the paid-generation allowance.
+        return super().get_throttles() if self.request.method == "POST" else []
 
     def get(self, request, journal_id):
         from django.conf import settings
@@ -157,6 +162,10 @@ class CoachTaskViewSet(ModelViewSet):
     pagination_class = None
     throttle_classes = [CoachThrottle]
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
+
+    def get_throttles(self):
+        # Listing, editing, and reading saved results do not call the AI.
+        return super().get_throttles() if self.action == "run" else []
 
     def get_journal(self):
         return get_object_or_404(Journal, pk=self.kwargs["journal_id"], user=self.request.user)
