@@ -217,6 +217,7 @@ class TradeMistake(models.Model):
 
 
 class TradeScreenshot(models.Model):
+    client_id = models.CharField(max_length=100, null=True, blank=True)
     trade = models.ForeignKey(Trade, on_delete=models.CASCADE, related_name="screenshots")
     image_url = models.URLField(max_length=2000)
     section = models.CharField(max_length=100, null=True, blank=True)
@@ -225,6 +226,7 @@ class TradeScreenshot(models.Model):
 
     class Meta:
         ordering = ["-uploaded_at"]
+        constraints = [models.UniqueConstraint(fields=["trade", "client_id"], name="unique_trade_screenshot_client_id")]
 
     def __str__(self) -> str:
         return f"Screenshot for trade {self.trade_id}"
@@ -298,3 +300,27 @@ class CoachTaskRun(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+
+
+class TradeDraft(models.Model):
+    trade = models.ForeignKey(Trade, null=True, blank=True, on_delete=models.CASCADE, related_name="cloud_drafts")
+    journal = models.ForeignKey(Journal, on_delete=models.CASCADE, related_name="trade_drafts")
+    scope = models.CharField(max_length=30)
+    data = models.JSONField(default=dict, blank=True)
+    revision = models.PositiveIntegerField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["journal", "scope"], name="unique_journal_draft_scope")]
+
+
+class TradeDraftImage(models.Model):
+    draft = models.ForeignKey(TradeDraft, on_delete=models.CASCADE, related_name="images")
+    digest = models.CharField(max_length=64)
+    content = models.BinaryField()
+    content_type = models.CharField(max_length=30)
+    name = models.CharField(max_length=200)
+    size = models.PositiveIntegerField()
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["draft", "digest"], name="unique_draft_image_digest")]

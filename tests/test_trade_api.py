@@ -534,3 +534,26 @@ def test_image_annotations_validate_and_round_trip(authenticated_client, journal
     bad["sections"][0]["image_details"]["1"]["caption"] = "a" * 301
     assert authenticated_client.patch(url, {"notes_document": bad}, format="json").status_code == 400
     assert authenticated_client.get(url).data["notes_document"] == document
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("kind,options,value", [("text", [], "Patient"), ("number", [], 0), ("boolean", [], False), ("select", ["A"], "A")])
+def test_rename_custom_field_keeps_id_type_options_and_values(authenticated_client, journal, kind, options, value):
+    from core.models import TradeCustomField
+    field = TradeCustomField.objects.create(journal=journal, section="setup", label="Original", field_type=kind, options=options)
+    trade = TradeFactory(journal=journal, custom_fields={str(field.pk): value})
+    url = f"/api/journals/{journal.pk}/custom-fields/{field.pk}/"
+    response = authenticated_client.patch(url, {"label": " Renamed "}, format="json")
+    assert response.status_code == 200
+    assert response.data["id"] == field.pk
+    assert response.data["label"] == "Renamed"
+    assert response.data["field_type"] == kind
+    assert response.data["options"] == options
+    trade.refresh_from_db()
+    assert trade.custom_fields == {str(field.pk): value}
+    assert authenticated_client.patch(url, {"label": "Renamed"}, format="json").status_code == 200
+    TradeCustomField.objects.create(journal=journal, section="setup", label="Duplicate", field_type="text")
+    for label in ["duplicate", " ", "a" * 81, None, 123]:
+        assert authenticated_client.patch(url, {"label": label}, format="json").status_code == 400
+    assert authenticated_client.patch(url, {"field_type": "text"}, format="json").status_code == 400
+    foreign = TradeCustomField.objects.create(journal=JournalFactory(), section="setup", label="Private", field_type="text")
+    assert authenticated_client.patch(f"/api/journals/{journal.pk}/custom-fields/{foreign.pk}/", {"label": "No access"}, format="json").status_code == 404

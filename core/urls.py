@@ -1,6 +1,8 @@
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
+from .draft_api import TradeDraftView, TradeDraftImageView
+
 from .coach_api import CoachChatView, CoachTaskViewSet
 
 from .views import (
@@ -33,6 +35,8 @@ router = DefaultRouter()
 router.register("journals", JournalViewSet, basename="journal")
 
 journal_nested = [
+    path("drafts/<str:scope>/", TradeDraftView.as_view(), name="journal-trade-draft"),
+    path("drafts/<str:scope>/images/<str:digest>/", TradeDraftImageView.as_view(), name="journal-trade-draft-image"),
     path("coach/chat/", CoachChatView.as_view(), name="coach-chat"),
     path("coach/tasks/", CoachTaskViewSet.as_view({"get": "list", "post": "create"}), name="coach-tasks"),
     path("coach/tasks/<int:pk>/", CoachTaskViewSet.as_view({"get": "retrieve", "patch": "partial_update", "delete": "destroy"}), name="coach-task"),

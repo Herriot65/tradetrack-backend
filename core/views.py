@@ -168,16 +168,34 @@ class TradeCustomFieldDeleteView(JournalScopedMixin, generics.DestroyAPIView):
 
     def patch(self, request, *args, **kwargs):
         instance = self.get_object()
-        if instance.field_type != "select":
-            raise serializers.ValidationError({"options": "Only dropdown options can be edited."})
-        options = request.data.get("options")
-        if not isinstance(options, list) or len(options) > 100 or any(not isinstance(option, str) or not option.strip() or len(option) > 100 for option in options):
-            raise serializers.ValidationError({"options": "Use up to 100 non-empty options, each at most 100 characters."})
-        options = [option.strip() for option in options]
-        if len({option.casefold() for option in options}) != len(options):
-            raise serializers.ValidationError({"options": "Each option must be unique."})
-        instance.options = options
-        instance.save(update_fields=["options"])
+        if not request.data or set(request.data) - {"label", "options"}:
+            raise serializers.ValidationError("Only field names and dropdown options can be edited.")
+        changed = []
+        if "label" in request.data:
+            label = request.data["label"]
+            if not isinstance(label, str) or not 1 <= len(label.strip()) <= 80:
+                raise serializers.ValidationError({"label": "Enter a field name of 1–80 characters."})
+            label = label.strip()
+            if TradeCustomField.objects.filter(journal=instance.journal, section=instance.section, label__iexact=label).exclude(pk=instance.pk).exists():
+                raise serializers.ValidationError({"label": "A field with this name already exists in this section."})
+            instance.label = label
+            changed.append("label")
+        if "options" in request.data:
+            if instance.field_type != "select":
+                raise serializers.ValidationError({"options": "Only dropdown options can be edited."})
+            options = request.data["options"]
+            if not isinstance(options, list) or len(options) > 100 or any(not isinstance(option, str) or not option.strip() or len(option) > 100 for option in options):
+                raise serializers.ValidationError({"options": "Use up to 100 non-empty options, each at most 100 characters."})
+            options = [option.strip() for option in options]
+            if len({option.casefold() for option in options}) != len(options):
+                raise serializers.ValidationError({"options": "Each option must be unique."})
+            instance.options = options
+            changed.append("options")
+        try:
+            with transaction.atomic():
+                instance.save(update_fields=changed)
+        except IntegrityError:
+            raise serializers.ValidationError({"label": "A field with this name already exists in this section."})
         return Response(self.get_serializer(instance).data)
 
     def perform_destroy(self, instance):
@@ -407,6 +425,13 @@ class TradeScreenshotView(JournalScopedMixin, APIView):
         from .supabase_client import upload_screenshot
 
         trade = self._get_trade(trade_id)
+        client_id = request.data.get("client_id") or None
+        if client_id and (not isinstance(client_id, str) or len(client_id) > 100):
+            raise serializers.ValidationError({"client_id": "Use an image identifier up to 100 characters."})
+        if client_id:
+            existing = trade.screenshots.filter(client_id=client_id).first()
+            if existing:
+                return Response(TradeScreenshotSerializer(existing).data)
         file_obj = request.FILES.get("file")
         if not file_obj:
             return Response({"error": "No file provided. Send the image as 'file'."}, status=status.HTTP_400_BAD_REQUEST)
@@ -421,7 +446,7 @@ class TradeScreenshotView(JournalScopedMixin, APIView):
             return Response({"error": f"Upload failed: {exc}"}, status=status.HTTP_502_BAD_GATEWAY)
 
         section = request.data.get("section") or None
-        screenshot = TradeScreenshot.objects.create(trade=trade, image_url=image_url, section=section, display_width=metadata.validated_data.get("display_width", 100))
+        screenshot = TradeScreenshot.objects.create(trade=trade, client_id=client_id, image_url=image_url, section=section, display_width=metadata.validated_data.get("display_width", 100))
         return Response(TradeScreenshotSerializer(screenshot).data, status=status.HTTP_201_CREATED)
 
     def patch(self, request, journal_id, trade_id, pk):
